@@ -1,8 +1,15 @@
 # Adam Shred — full-stack, containerized
 
 Personal weekly gym plan with **user accounts**, **server-synced progress**, and
-**AI-generated workout plans**. Originally a static Vite SPA; now a Dockerized
-full-stack app ready to deploy on a VPS (Linode, etc.).
+**AI-generated workout plans** with **email verification** and **AI usage protection**.
+
+🔒 **New Security Features:**
+- ✉️ Email verification required for AI features
+- 🎟️ Daily AI credits system (10 free generations/day)
+- ⏱️ Rate limiting on registration, login, and AI endpoints
+- 📊 Usage logs for monitoring
+
+See [SECURITY.md](SECURITY.md) for full security documentation.
 
 ## Stack
 
@@ -31,15 +38,26 @@ server/
 ## Run locally (Docker)
 
 ```bash
-cp .env.example .env          # then edit: set JWT_SECRET, POSTGRES_PASSWORD, OPENROUTER_API_KEY
+cp .env.example .env          # then edit:
+                              # - JWT_SECRET (openssl rand -hex 32)
+                              # - POSTGRES_PASSWORD
+                              # - OPENROUTER_API_KEY
+                              # - SMTP config (optional, for email verification)
 docker compose up -d --build
 ```
 
-Open http://localhost:8080 → register → train. To use AI plan generation, set
-`OPENROUTER_API_KEY` in `.env` (get one at https://openrouter.ai/keys) and restart:
-`docker compose up -d`.
+Open http://localhost:8080 → register → verify email → train.
 
-Generate a strong secret: `openssl rand -hex 32`.
+**Email Verification:**
+- In **development**: verification links are logged to console (no SMTP needed)
+- In **production**: configure SMTP in `.env` to send real emails
+- See [SECURITY.md](SECURITY.md) for SMTP provider recommendations
+
+**AI Features:**
+- Requires verified email
+- 10 free AI generations per day
+- Resets every 24 hours
+- Credits displayed in UI
 
 ## Run locally (without Docker)
 

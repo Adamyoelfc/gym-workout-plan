@@ -28,6 +28,9 @@ export const api = {
   login: (email, password) =>
     request("/auth/login", { method: "POST", body: { email, password }, auth: false }),
   me: () => request("/auth/me"),
+  verifyEmail: (token) => request(`/auth/verify-email?token=${token}`, { auth: false }),
+  resendVerification: () => request("/auth/resend-verification", { method: "POST" }),
+  getAiStats: () => request("/auth/ai-stats"),
 
   getProgress: () => request("/progress"),
   saveProgress: (progress) => request("/progress", { method: "PUT", body: { progress } }),

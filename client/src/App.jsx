@@ -17,6 +17,8 @@ import {
 import "./style.css";
 import { AuthProvider, useAuth, AuthScreen, LogoutButton } from "./auth.jsx";
 import { api } from "./api.js";
+import { EmailVerificationBanner, AiCreditsIndicator } from "./EmailVerificationBanner.jsx";
+import { VerifyEmailPage } from "./VerifyEmailPage.jsx";
 
 const API_ORIGIN = "https://oss.exercisedb.dev";
 const API_BASE = import.meta.env.DEV ? "/exercise-api" : `${API_ORIGIN}/api/v1/exercises`;
@@ -179,6 +181,7 @@ function ex(name, search, sets, reps, rest, cue, abs = false) {
 }
 
 function App() {
+  const { user } = useAuth();
   const todayKey = useMemo(() => getTodayKey(), []);
   const [active, setActive] = useState(todayKey);
   const [gifCache, setGifCache] = useLocalStorage(GIF_CACHE_KEY, {});
@@ -327,7 +330,10 @@ function App() {
           <button className="ai-btn" onClick={() => setAiOpen(true)}>
             <Sparkles size={15} /> Generar plan con IA
           </button>
-          <LogoutButton />
+          <div className="topbar-right">
+            <AiCreditsIndicator user={user} />
+            <LogoutButton />
+          </div>
         </div>
         <div className="eyebrow">EXTREME CUT 4 sem · PPL×2 · Abs avanzados · RPE 8-9</div>
         <h1>ADAM.SHRED</h1>
@@ -686,9 +692,24 @@ function AiPlanModal({ onClose, onApply, onReset, hasCustomPlan }) {
 // Auth gate: shows the login/register screen until a session exists.
 function Root() {
   const { user, loading } = useAuth();
+  
+  // Simple routing for email verification
+  const path = window.location.pathname;
+  const isVerifyPage = path === "/verify-email" || window.location.search.includes("token=");
+  
+  if (isVerifyPage) {
+    return <VerifyEmailPage />;
+  }
+  
   if (loading) return <div className="boot">Cargando…</div>;
   if (!user) return <AuthScreen />;
-  return <App />;
+  
+  return (
+    <>
+      <EmailVerificationBanner user={user} />
+      <App />
+    </>
+  );
 }
 
 function GifBox({ name, gif, status, onOpen }) {

@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev-insecure-secret-change-me";
 const TOKEN_TTL = "30d";
@@ -26,4 +27,25 @@ export function requireAuth(req, res, next) {
   } catch {
     res.status(401).json({ error: "Invalid or expired token" });
   }
+}
+
+// Middleware: requires email verification
+export function requireVerified(req, res, next) {
+  if (!req.user?.emailVerified) {
+    return res.status(403).json({ 
+      error: "Email not verified",
+      message: "Please verify your email to use AI features" 
+    });
+  }
+  next();
+}
+
+// Generate verification token (random hex)
+export function generateVerificationToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+// Token expires in 24 hours
+export function getVerificationExpiry() {
+  return new Date(Date.now() + 24 * 60 * 60 * 1000);
 }
