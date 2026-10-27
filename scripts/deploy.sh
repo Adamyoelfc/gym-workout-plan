@@ -25,7 +25,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "Opening SSH connection (the server may ask for your password once)"
-ssh "${IDENTITY[@]}" -M -S "$CONTROL_PATH" -o ControlPersist=60 -fNT "$DEPLOY_HOST"
+ssh ${IDENTITY[@]+"${IDENTITY[@]}"} -M -S "$CONTROL_PATH" -o ControlPersist=60 -fNT "$DEPLOY_HOST"
 SSH=(ssh -S "$CONTROL_PATH")
 RSYNC_SSH="ssh -S $CONTROL_PATH"
 
