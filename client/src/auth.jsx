@@ -24,8 +24,9 @@ export function AuthProvider({ children }) {
   }
 
   async function register(email, password, name) {
-    const { user } = await api.register(email, password, name);
-    setUser(user);
+    const { user, message } = await api.register(email, password, name);
+    if (user) setUser(user);
+    return message;
   }
 
   async function logout() {
@@ -68,7 +69,10 @@ export function AuthScreen() {
     setBusy(true);
     try {
       if (mode === "login") await login(email, password);
-      else await register(email, password, name);
+      else {
+        const message = await register(email, password, name);
+        if (message) { setMode("login"); setError(message); }
+      }
     } catch (err) {
       setError(err.message);
     } finally {

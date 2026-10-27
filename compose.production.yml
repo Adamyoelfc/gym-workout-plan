@@ -1,5 +1,8 @@
 services:
   app:
+    # Sin puerto publicado: con trust proxy activo, un acceso directo a IP:8080
+    # podría falsear X-Forwarded-For y saltarse el rate limit.
+    ports: !reset []
     environment:
       # Detrás de Traefik: 1 salto para que el rate limit vea la IP real del cliente.
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}

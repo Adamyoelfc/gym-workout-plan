@@ -73,10 +73,14 @@ router.post("/auth/register", registrationLimiter, async (req, res) => {
     
     const user = rows[0];
     
-    setSessionCookie(req, res, user);
+    // Con la lista de invitados, poner un email de la lista no demuestra que sea tuyo:
+    // la sesión solo se abre tras verificar el correo.
+    if (openRegistration) setSessionCookie(req, res, user);
     res.status(201).json({
-      user: publicUser(user),
-      message: "Account created! Please check your email to verify."
+      user: openRegistration ? publicUser(user) : null,
+      message: openRegistration
+        ? "Account created! Please check your email to verify."
+        : "Cuenta creada. Abre el enlace que te enviamos por email para activarla y luego entra.",
     });
 
     // Do not keep the registration request waiting on an external SMTP server.
@@ -179,6 +183,8 @@ router.post("/auth/login", loginLimiter, async (req, res) => {
     
     if (!(await verifyPasswordOrDummy(password, user?.password_hash)))
       return res.status(401).json({ error: "Email o contraseña incorrectos" });
+    if (!openRegistration && !user.email_verified)
+      return res.status(403).json({ error: "Verifica tu email antes de entrar (revisa tu bandeja de entrada)." });
 
     setSessionCookie(req, res, user);
     res.json({
@@ -383,7 +389,7 @@ router.post("/chat", aiGeneralLimiter, requireAuth, requireVerified, async (req,
     });
   } catch (error) {
     console.error("[routes] chat error", error);
-    res.status(502).json({ error: error.message || "Coach chat failed" });
+    res.status(502).json({ error: "El coach no pudo responder. Inténtalo de nuevo en un momento." });
   }
 });
 
@@ -454,7 +460,7 @@ router.post("/plan/generate",
       });
     } catch (err) {
       console.error("[routes] plan generation error", err);
-      res.status(502).json({ error: err.message || "AI generation failed" });
+      res.status(502).json({ error: "No se pudo generar el plan. Inténtalo de nuevo." });
     }
   }
 );
