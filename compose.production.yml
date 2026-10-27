@@ -1,0 +1,33 @@
+services:
+  app:
+    environment:
+      # Detrás de Traefik: 1 salto para que el rate limit vea la IP real del cliente.
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+      SESSION_COOKIE_PATH: ${SESSION_COOKIE_PATH:-/gym-ai-web}
+    build:
+      args:
+        VITE_BASE_PATH: /gym-ai-web/
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: traefik_traefik
+      traefik.http.middlewares.gym-ai-web-redirect.redirectscheme.scheme: https
+      traefik.http.middlewares.gym-ai-web-redirect.redirectscheme.permanent: "true"
+      traefik.http.middlewares.gym-ai-web-strip.stripprefix.prefixes: /gym-ai-web
+      traefik.http.routers.gym-ai-web-http.entrypoints: web
+      traefik.http.routers.gym-ai-web-http.middlewares: gym-ai-web-redirect
+      traefik.http.routers.gym-ai-web-http.priority: "100"
+      traefik.http.routers.gym-ai-web-http.rule: Host(`adamdev.me`) && PathPrefix(`/gym-ai-web`)
+      traefik.http.routers.gym-ai-web.entrypoints: websecure
+      traefik.http.routers.gym-ai-web.middlewares: gym-ai-web-strip
+      traefik.http.routers.gym-ai-web.priority: "100"
+      traefik.http.routers.gym-ai-web.rule: Host(`adamdev.me`) && PathPrefix(`/gym-ai-web`)
+      traefik.http.routers.gym-ai-web.tls.certresolver: letsencrypt
+      traefik.http.services.gym-ai-web.loadbalancer.server.port: "8080"
+    networks:
+      - default
+      - traefik
+
+networks:
+  traefik:
+    external: true
+    name: traefik_traefik

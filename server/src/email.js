@@ -2,6 +2,7 @@ import nodemailer from "nodemailer";
 
 const EMAIL_FROM = process.env.EMAIL_FROM || "noreply@gym-app.com";
 const APP_URL = process.env.PUBLIC_URL || "http://localhost:8080";
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
 // Create transporter based on environment
 function createTransporter() {
@@ -15,6 +16,9 @@ function createTransporter() {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
       },
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 15_000,
     });
   }
 
@@ -24,6 +28,48 @@ function createTransporter() {
 }
 
 const transporter = createTransporter();
+
+async function sendWithResend({ to, subject, text, html }) {
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ from: EMAIL_FROM, to: [to], subject, text, html }),
+    signal: AbortSignal.timeout(15_000),
+  });
+
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(`Resend returned ${response.status}: ${details.slice(0, 500)}`);
+  }
+}
+
+async function sendEmail(message) {
+  try {
+    if (RESEND_API_KEY) {
+      await sendWithResend(message);
+      return { success: true, mode: "resend" };
+    }
+
+    if (transporter) {
+      await transporter.sendMail({
+        from: EMAIL_FROM,
+        ...message,
+      });
+      return { success: true, mode: "smtp" };
+    }
+
+    console.log("[email] DEV MODE - Email:");
+    console.log("To:", message.to);
+    console.log("Subject:", message.subject);
+    return { success: true, mode: "dev" };
+  } catch (error) {
+    console.error("[email] Failed to send:", error);
+    return { success: false, error: error.message };
+  }
+}
 
 export async function sendVerificationEmail(email, token) {
   const verifyUrl = `${APP_URL}/verify-email?token=${token}`;
@@ -58,27 +104,18 @@ Verification link: ${verifyUrl}
 This link expires in 24 hours.
   `;
 
-  if (!transporter) {
-    // Dev mode: just log
+  if (!RESEND_API_KEY && !transporter) {
     console.log("[email] DEV MODE - Verification email:");
     console.log("To:", email);
     console.log("Link:", verifyUrl);
-    return { success: true, mode: "dev" };
   }
 
-  try {
-    await transporter.sendMail({
-      from: EMAIL_FROM,
-      to: email,
-      subject: "Verify your email - Gym Workout Plan",
-      text,
-      html,
-    });
-    return { success: true, mode: "smtp" };
-  } catch (error) {
-    console.error("[email] Failed to send:", error);
-    return { success: false, error: error.message };
-  }
+  return sendEmail({
+    to: email,
+    subject: "Verify your email - Gym Workout Plan",
+    text,
+    html,
+  });
 }
 
 export async function sendPasswordResetEmail(email, token) {
@@ -112,24 +149,16 @@ Reset your password: ${resetUrl}
 This link expires in 1 hour.
   `;
 
-  if (!transporter) {
+  if (!RESEND_API_KEY && !transporter) {
     console.log("[email] DEV MODE - Password reset email:");
     console.log("To:", email);
     console.log("Link:", resetUrl);
-    return { success: true, mode: "dev" };
   }
 
-  try {
-    await transporter.sendMail({
-      from: EMAIL_FROM,
-      to: email,
-      subject: "Password Reset - Gym Workout Plan",
-      text,
-      html,
-    });
-    return { success: true, mode: "smtp" };
-  } catch (error) {
-    console.error("[email] Failed to send:", error);
-    return { success: false, error: error.message };
-  }
+  return sendEmail({
+    to: email,
+    subject: "Password Reset - Gym Workout Plan",
+    text,
+    html,
+  });
 }

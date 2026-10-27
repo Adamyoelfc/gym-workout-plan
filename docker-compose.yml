@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-shred}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shred}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-shred}
     volumes:
       - db_data:/var/lib/postgresql/data
@@ -26,11 +26,29 @@ services:
         condition: service_healthy
     environment:
       PORT: 8080
-      DATABASE_URL: postgres://${POSTGRES_USER:-shred}:${POSTGRES_PASSWORD:-shred}@db:5432/${POSTGRES_DB:-shred}
+      DATABASE_URL: postgres://${POSTGRES_USER:-shred}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-shred}
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-3.5-sonnet}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-sonnet-5.5}
+      AI_DAILY_LIMIT: ${AI_DAILY_LIMIT:-5}
+      AI_GLOBAL_DAILY_LIMIT: ${AI_GLOBAL_DAILY_LIMIT:-100}
+      AI_GLOBAL_DAILY_USD: ${AI_GLOBAL_DAILY_USD:-5}
+      AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-1600}
+      AI_MAX_TOOL_ROUNDS: ${AI_MAX_TOOL_ROUNDS:-4}
+      APP_TIME_ZONE: ${APP_TIME_ZONE:-America/New_York}
+      RAPIDAPI_KEY: ${RAPIDAPI_KEY:-}
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
+      SESSION_COOKIE_PATH: ${SESSION_COOKIE_PATH:-/}
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
+      ALLOWED_EMAILS: ${ALLOWED_EMAILS:-}
+      EMAIL_FROM: ${EMAIL_FROM:-noreply@gym-app.com}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
     ports:
       - "${APP_PORT:-8080}:8080"
 

@@ -1,105 +1,126 @@
-# Adam Shred — full-stack, containerized
+# Plan Coach
 
-Personal weekly gym plan with **user accounts**, **server-synced progress**, and
-**AI-generated workout plans** with **email verification** and **AI usage protection**.
+Aplicación mobile-first de entrenamiento y nutrición que integra el plan Upper/Lower de `plan-app` con cuentas, sincronización, GIFs y un coach conversacional capaz de actualizar el plan.
 
-🔒 **New Security Features:**
-- ✉️ Email verification required for AI features
-- 🎟️ Daily AI credits system (10 free generations/day)
-- ⏱️ Rate limiting on registration, login, and AI endpoints
-- 📊 Usage logs for monitoring
+## Qué conserva de `plan-app`
 
-See [SECURITY.md](SECURITY.md) for full security documentation.
+- Bloques A/B con todos los ejercicios y alternativas
+- Semana Upper/Lower de 4 días, cardio y descanso
+- Progreso por tanda completada
+- Timer con cálculo por timestamp y controles de 60/90/120/180 s
+- Registro diario de proteína y calorías
+- Apertura automática de la actividad de hoy
 
-## Stack
+El estado se sincroniza por usuario en PostgreSQL. Los GIFs usan como fuente principal el catálogo comunitario ExerciseGymGifsDB v1.1.0 servido por jsDelivr, con fallback opcional a AscendAPI mediante RapidAPI.
 
-| Layer    | Tech                                                        |
-|----------|-------------------------------------------------------------|
-| Frontend | React + Vite (`client/`)                                    |
-| Backend  | Node + Express (`server/`) — serves the API **and** the built client |
-| Auth     | Email + password, bcrypt hashes, JWT (30-day tokens)        |
-| Database | PostgreSQL (own container + persistent volume)              |
-| AI       | OpenRouter (OpenAI-compatible chat completions)             |
+> **Uso de GIFs:** el catálogo comunitario declara que los GIFs pertenecen a sus autores y no concede derechos sobre ellos. Esta integración se usa para el proyecto personal/no comercial. Antes de convertir la aplicación en un producto comercial, sustituye esta fuente por contenido con una licencia comercial explícita.
 
-Two containers: `db` (Postgres) and `app` (Express serving API + static client on port 8080).
+## Coach con IA
 
-## Layout
+El chat puede mover días y ejercicios, sustituir alternativas y actualizar cardio o nutrición. No entrega el plan completo generado directamente al cliente: propone operaciones limitadas, el servidor las valida, aplica y registra.
 
-```
-docker-compose.yml      # db + app services
-Dockerfile              # multi-stage: build client → run server serving it
-.env.example            # copy to .env and fill in
-client/                 # Vite React SPA (auth UI, progress sync, AI modal)
-server/
-  src/{index,db,auth,routes,ai}.js
-  db/init.sql           # users / progress / plans schema (runs on first DB boot)
-```
+El coach recibe en cada mensaje la fecha/hora en la zona IANA del navegador y las actividades exactas de ayer, hoy y mañana. Su agente dispone de herramientas validadas para analizar el plan, editar bloques/días/ejercicios/semana/cardio/nutrición, buscar ejercicios y guardar u olvidar preferencias. Los IDs nuevos se generan en el servidor y cada cambio del plan se puede deshacer.
 
-## Run locally (Docker)
+PostgreSQL guarda:
+
+- `ai_memories`: preferencias durables del usuario
+- `chat_messages`: historial del chat
+- `plan_changes`: auditoría antes/después y soporte para deshacer
+- `ai_usage_logs`: uso, tokens y coste reportado por el proveedor
+
+## Ejecutar con Docker
 
 ```bash
-cp .env.example .env          # then edit:
-                              # - JWT_SECRET (openssl rand -hex 32)
-                              # - POSTGRES_PASSWORD
-                              # - OPENROUTER_API_KEY
-                              # - SMTP config (optional, for email verification)
+cp .env.example .env
+# Cambia al menos POSTGRES_PASSWORD, JWT_SECRET y OPENROUTER_API_KEY
 docker compose up -d --build
 ```
 
-Open http://localhost:8080 → register → verify email → train.
+Abre `http://localhost:8080`. En producción usa HTTPS mediante un proxy inverso
+(este servidor usa Traefik) y configura `PUBLIC_URL` con la URL pública. Si
+existe exactamente un proxy delante del contenedor, usa `TRUST_PROXY_HOPS=1`;
+déjalo en `0` cuando se acceda directamente.
 
-**Email Verification:**
-- In **development**: verification links are logged to console (no SMTP needed)
-- In **production**: configure SMTP in `.env` to send real emails
-- See [SECURITY.md](SECURITY.md) for SMTP provider recommendations
+Las migraciones son idempotentes y se ejecutan al arrancar, incluso si el volumen de PostgreSQL ya existía.
 
-**AI Features:**
-- Requires verified email
-- 10 free AI generations per day
-- Resets every 24 hours
-- Credits displayed in UI
+## Variables principales
 
-## Run locally (without Docker)
+| Variable | Uso |
+| --- | --- |
+| `OPENROUTER_API_KEY` | Solo servidor; nunca se incluye en el bundle web |
+| `OPENROUTER_MODEL` | Modelo de OpenRouter con soporte para function/tool calling |
+| `AI_DAILY_LIMIT` | Máximo diario por cuenta |
+| `AI_GLOBAL_DAILY_LIMIT` | Cortacircuito diario total |
+| `AI_GLOBAL_DAILY_USD` | Pausa al alcanzar el coste reportado |
+| `AI_MAX_OUTPUT_TOKENS` | Techo de salida por llamada |
+| `AI_MAX_TOOL_ROUNDS` | Máximo de rondas de herramientas por respuesta |
+| `APP_TIME_ZONE` | Zona horaria IANA de respaldo si el navegador no envía una válida |
+| `RAPIDAPI_KEY` | Opcional; ExerciseDB desde servidor |
+| `JWT_SECRET` | Firma de la sesión HttpOnly |
+| `RESEND_API_KEY` | Envío de email por HTTPS; recomendado en producción |
+| `EMAIL_FROM` | Remitente verificado, por ejemplo `Gym AI <noreply@notifications.adamdev.me>` |
+| `SMTP_*` | Alternativa SMTP; se usa solo si no existe `RESEND_API_KEY` |
+
+Para la protección económica más fuerte, configura además un límite de gasto directamente en OpenRouter: el límite del proveedor sigue funcionando aunque tu servidor sea comprometido.
+
+## API relevante
+
+| Método | Ruta | Función |
+| --- | --- | --- |
+| `GET/PUT` | `/api/plan` | Leer o guardar el plan completo |
+| `GET/PUT` | `/api/progress` | Progreso, alternativas y comida |
+| `GET/POST` | `/api/chat` | Historial / conversar y actualizar |
+| `POST` | `/api/plan/undo` | Deshacer el último cambio del coach |
+| `GET` | `/api/exercises/gif` | Buscar GIF a través del servidor |
+
+Consulta [SECURITY.md](SECURITY.md) antes de publicar.
+
+## Despliegue en adamdev.me
+
+Producción usa el Traefik existente y publica la app bajo
+`https://adamdev.me/gym-ai-web/`. El primer despliegue necesita un `.env` en
+`/root/docker/gym-ai-web`; los siguientes conservan ese archivo y se hacen con:
 
 ```bash
-# terminal 1 — server (needs a reachable Postgres)
-cd server && npm install
-DATABASE_URL=postgres://shred:shred@localhost:5432/shred \
-JWT_SECRET=dev OPENROUTER_API_KEY=sk-... npm run dev
-
-# terminal 2 — client (Vite proxies /api → :8080)
-cd client && npm install && npm run dev
+./scripts/deploy.sh
 ```
 
-## Deploy to a Linode VPS
+El script sincroniza el árbol de trabajo actual (incluidos cambios sin commit),
+reconstruye los contenedores y comprueba `/gym-ai-web/api/health`. La base de
+datos vive en un volumen Docker y no se borra en los despliegues. Con la
+configuración SSH actual pide la contraseña una vez y reutiliza esa conexión
+durante todo el despliegue.
 
-1. Install Docker + Compose on the VPS, then clone this repo.
-2. `cp .env.example .env` and set real values:
-   - `JWT_SECRET` (long random), `POSTGRES_PASSWORD`, `OPENROUTER_API_KEY`
-   - `PUBLIC_URL=https://your-domain` and `APP_PORT` if not 8080.
-3. `docker compose up -d --build`.
-4. Put it behind a reverse proxy (Caddy/Nginx) for TLS, forwarding `:443 → app:8080`.
-   The Postgres `db_data` volume persists across restarts/rebuilds.
+Variables requeridas en el `.env` de producción:
 
-To reset the database (wipes all users/progress): `docker compose down -v`.
+```dotenv
+APP_PORT=127.0.0.1:8081
+PUBLIC_URL=https://adamdev.me/gym-ai-web
+TRUST_PROXY_HOPS=1
+SESSION_COOKIE_PATH=/gym-ai-web
+EMAIL_FROM=Gym AI <noreply@notifications.adamdev.me>
+RESEND_API_KEY=re_...
+```
 
-## API
+Se pueden cambiar el host, ruta o clave sin editar el script, por ejemplo:
 
-| Method | Path                  | Auth | Purpose                          |
-|--------|-----------------------|------|----------------------------------|
-| POST   | `/api/auth/register`  | —    | Create account, returns JWT      |
-| POST   | `/api/auth/login`     | —    | Returns JWT                      |
-| GET    | `/api/auth/me`        | ✓    | Current user                     |
-| GET    | `/api/progress`       | ✓    | Fetch synced progress            |
-| PUT    | `/api/progress`       | ✓    | Save progress blob               |
-| GET    | `/api/plan`           | ✓    | Fetch saved plan (or null)       |
-| PUT    | `/api/plan`           | ✓    | Save a custom plan               |
-| POST   | `/api/plan/generate`  | ✓    | AI-generate + save a weekly plan |
+```bash
+SSH_KEY="$HOME/.ssh/otra-clave" DEPLOY_HOST=root@servidor ./scripts/deploy.sh
+```
 
-The AI returns a `days` array matching the frontend schema, so generated plans
-render exactly like the built-in default program.
+Después de modificar únicamente el `.env` directamente en el servidor, aplica
+los cambios sin reconstruir la imagen con:
 
----
+```bash
+./scripts/prod-compose.sh up -d
+```
 
-The original Cloudflare Pages function (`functions/exercise-api/`) is left in the
-repo for reference but is unused in this VPS deployment.
+Para ver estado o logs:
+
+```bash
+./scripts/prod-compose.sh ps
+./scripts/prod-compose.sh logs -f app
+```
+
+El wrapper siempre incluye `compose.production.yml` y rechaza `-v`/`--volumes`.
+No uses `docker compose down -v` en producción: ese flag elimina PostgreSQL.

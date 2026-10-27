@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { Dumbbell, LogOut } from "lucide-react";
-import { api, getToken, setToken } from "./api.js";
+import { api } from "./api.js";
 
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -11,32 +11,25 @@ export function AuthProvider({ children }) {
 
   // Restore session from a stored token on first load.
   useEffect(() => {
-    const token = getToken();
-    if (!token) {
-      setLoading(false);
-      return;
-    }
     api
       .me()
       .then(({ user }) => setUser(user))
-      .catch(() => setToken(null))
+      .catch(() => setUser(null))
       .finally(() => setLoading(false));
   }, []);
 
   async function login(email, password) {
-    const { token, user } = await api.login(email, password);
-    setToken(token);
+    const { user } = await api.login(email, password);
     setUser(user);
   }
 
   async function register(email, password, name) {
-    const { token, user } = await api.register(email, password, name);
-    setToken(token);
+    const { user } = await api.register(email, password, name);
     setUser(user);
   }
 
-  function logout() {
-    setToken(null);
+  async function logout() {
+    await api.logout().catch(() => {});
     setUser(null);
   }
 
@@ -65,6 +58,9 @@ export function AuthScreen() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [registration, setRegistration] = useState("closed");
+
+  useEffect(() => { api.authConfig().then((config) => setRegistration(config.registration)).catch(() => {}); }, []);
 
   async function submit(e) {
     e.preventDefault();
@@ -108,7 +104,7 @@ export function AuthScreen() {
         />
         <input
           type="password"
-          placeholder="Contraseña (mín. 8)"
+          placeholder={mode === "login" ? "Contraseña" : "Contraseña (mín. 10)"}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           autoComplete={mode === "login" ? "current-password" : "new-password"}
@@ -121,16 +117,20 @@ export function AuthScreen() {
           {busy ? "..." : mode === "login" ? "Entrar" : "Registrarme"}
         </button>
 
-        <button
-          type="button"
-          className="auth-switch"
-          onClick={() => {
-            setError("");
-            setMode(mode === "login" ? "register" : "login");
-          }}
-        >
-          {mode === "login" ? "¿No tienes cuenta? Regístrate" : "¿Ya tienes cuenta? Entra"}
-        </button>
+        {registration !== "closed" ? (
+          <button
+            type="button"
+            className="auth-switch"
+            onClick={() => {
+              setError("");
+              setMode(mode === "login" ? "register" : "login");
+            }}
+          >
+            {mode === "login" ? "¿No tienes cuenta? Regístrate" : "¿Ya tienes cuenta? Entra"}
+          </button>
+        ) : (
+          <p className="auth-closed">App privada: el registro de cuentas nuevas está cerrado.</p>
+        )}
       </form>
     </main>
   );

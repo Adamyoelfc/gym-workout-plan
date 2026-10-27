@@ -1,983 +1,883 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import {
-  Play,
-  RefreshCw,
-  TimerReset,
-  Dumbbell,
-  Flame,
-  CheckCircle2,
-  ExternalLink,
-  Maximize2,
-  Minimize2,
-  X,
-  Trash2,
-  Sparkles,
-} from "lucide-react";
+import { Activity, ArrowRightLeft, BookOpen, Bot, FileUp, CalendarDays, CloudOff, PenLine, Timer, Trophy, Check, ChevronDown, ChevronLeft, ChevronRight, CircleUserRound, Dumbbell, Flame, Footprints, History, Image as ImageIcon, LoaderCircle, Minus, MessageCircle, Moon, Pause, Play, Plus, RotateCcw, Send, Sparkles, Trash2, TrendingUp, Undo2, Utensils, Volume2, VolumeX, X, Video } from "lucide-react";
 import "./style.css";
-import { AuthProvider, useAuth, AuthScreen, LogoutButton } from "./auth.jsx";
-import { api } from "./api.js";
-import { EmailVerificationBanner, AiCreditsIndicator } from "./EmailVerificationBanner.jsx";
+import { AuthProvider, AuthScreen, LogoutButton, useAuth } from "./auth.jsx";
+import { EmailVerificationBanner } from "./EmailVerificationBanner.jsx";
 import { VerifyEmailPage } from "./VerifyEmailPage.jsx";
+import { api } from "./api.js";
+import { DEFAULT_PLAN, PLAN_GUIDE, PLAN_VERSION, WEEKDAY_IDS, exerciseMedia } from "./planData.js";
 
-const API_ORIGIN = "https://oss.exercisedb.dev";
-const API_BASE = import.meta.env.DEV ? "/exercise-api" : `${API_ORIGIN}/api/v1/exercises`;
-const STATIC_BASE = "https://static.exercisedb.dev/media/";
-const GIF_CACHE_KEY = "adam_shred_react_gifs_v3";
-const PROGRESS_KEY = "adam_shred_react_progress_v2";
-const ENABLE_EXERCISEDB_LOOKUP = true;
-const FALLBACK_GIFS = {
-  "incline dumbbell press": "https://static.exercisedb.dev/media/ns0SIbU.gif",
-};
-const NO_GIF_SEARCHES = new Set([
-  "incline treadmill walk",
-  "walking",
-  "stretching",
-  "stomach vacuum",
-  "dragon flag",
-  "l sit",
-  "hanging windshield wiper",
-  "stir the pot",
-  "sled push",
-  "assault bike",
-]);
-
-const defaultDays = [
-  {
-    key: "mon",
-    label: "Lun",
-    title: "Push pesado + Abs vol",
-    focus: "Pecho · Hombro · Tríceps · Abs avanzados",
-    duration: "80-90 min",
-    desc: "Banca 5×5 RPE 8, supersets ⚡, drop set en lateral, rest-pause en tríceps. Abs: dragon flag.",
-    exercises: [
-      ex("Barbell Bench Press", "barbell bench press", "5", "5", "120s", "RPE 8. Escápulas retraídas. Bajada 3s. Empuja con piernas."),
-      ex("Seated Dumbbell Shoulder Press", "seated dumbbell shoulder press", "4", "8", "90s", "RPE 8. Costillas abajo, no arquees lumbar."),
-      ex("⚡ Incline Dumbbell Press", "incline dumbbell press", "3", "10", "0s", "Superset con remo invertido — sin descanso."),
-      ex("⚡ Inverted Row", "inverted row", "3", "12", "75s", "Pausa 1s arriba. Aprieta omóplatos."),
-      ex("Dumbbell Lateral Raise (drop set)", "dumbbell lateral raise", "3", "12", "60s", "Última serie: drop ×AMRAP al 30% menos peso, repite 2 drops."),
-      ex("Cable Triceps Rope Pushdown (rest-pause)", "cable triceps pushdown rope", "3", "12", "60s", "Última: pausa 15s al fallo, AMRAP ×2."),
-      ex("Dragon Flag Negative", "dragon flag", "4", "6", "75s", "Bajada 5s estricta. Cuerpo recto. Si no, hollow body hold.", true),
-      ex("Hanging Toes-to-Bar", "hanging toes to bar", "4", "AMRAP", "75s", "Sin balanceo. Piernas rectas hasta tocar barra.", true),
-      ex("Cable Woodchopper", "cable woodchopper", "3", "12/side", "45s", "Carga pesada. Rotación con core, no con brazos.", true),
-    ],
-  },
-  {
-    key: "tue",
-    label: "Mar",
-    title: "Pull pesado + Abs rotacional",
-    focus: "Espalda · Bíceps · Trapecio · Abs",
-    duration: "85-95 min",
-    desc: "Peso muerto 4×5, dominadas lastradas, remo Pendlay. Abs: windshield wipers.",
-    exercises: [
-      ex("Barbell Deadlift", "barbell deadlift", "4", "5", "150s", "RPE 8. Técnica perfecta. Empuja el suelo, no jales."),
-      ex("Weighted Pull Up", "weighted pull up", "4", "6-8", "120s", "Lastra cuando puedas. Si no, dominada estricta o asistida."),
-      ex("Pendlay Row", "pendlay row", "4", "8", "90s", "Concéntrico explosivo, descansa la barra cada rep."),
-      ex("⚡ Seated Cable Row", "seated cable row", "3", "10", "0s", "Superset con face pull."),
-      ex("⚡ Face Pull", "face pull", "3", "15", "75s", "Pull a la frente. Rotación externa al final."),
-      ex("Barbell Curl (drop set)", "barbell curl", "3", "8", "60s", "Última: drop ×AMRAP al 30% menos."),
-      ex("Hammer Curl", "hammer curl", "3", "12", "60s", "Neutro. Eccentric controlado 3s."),
-      ex("Hanging Windshield Wiper", "hanging windshield wiper", "3", "8/side", "75s", "Avanzado. Si no, lying windshield wiper en el suelo.", true),
-      ex("Weighted Russian Twist", "russian twist", "3", "20", "60s", "Disco 10 kg. Pies elevados. Rotación lenta.", true),
-      ex("Weighted Plank", "weighted plank", "3", "60s", "60s", "10-20 kg en espalda. Glúteos tensos.", true),
-    ],
-  },
-  {
-    key: "wed",
-    label: "Mié",
-    title: "Legs pesado + Core estabilidad",
-    focus: "Cuádriceps · Glúteos · Femoral · Core",
-    duration: "90-100 min",
-    desc: "Sentadilla 5×5, RDL pesado, prensa rest-pause. Core: ab wheel de pie + L-sit.",
-    exercises: [
-      ex("Barbell Back Squat", "barbell back squat", "5", "5", "150s", "RPE 8. Bajo paralelo. Brace duro. Bajada 3s."),
-      ex("Romanian Deadlift", "romanian deadlift", "4", "8", "90s", "Hinge cadera. Estiramiento máximo. Barra pegada."),
-      ex("Leg Press (rest-pause)", "leg press", "3", "12", "90s", "Última: pausa 15s al fallo, AMRAP ×2."),
-      ex("Dumbbell Walking Lunge", "dumbbell walking lunge", "3", "10/leg", "75s", "Pasos largos. Tibia frontal vertical."),
-      ex("Lying Leg Curl", "lying leg curl", "4", "12", "60s", "Tempo 3-1-1. Aprieta hasta abajo."),
-      ex("Standing Calf Raise (drop set)", "standing calf raise", "4", "15", "45s", "Última: 2 drops del 25%."),
-      ex("Standing Ab Wheel Rollout", "ab wheel rollout", "3", "AMRAP", "90s", "De pie si puedes. Si no, de rodillas con extensión completa.", true),
-      ex("L-Sit Hold", "l sit", "3", "20-30s", "60s", "Paralelas. Piernas rectas, cadera bloqueada. Si no, tucked L-sit.", true),
-      ex("Pallof Press Hold", "pallof press", "3", "30s/side", "45s", "Anti-rotación. Mantén caderas y hombros cuadrados.", true),
-    ],
-  },
-  {
-    key: "thu",
-    label: "Jue",
-    title: "Push hipertrofia + Abs aislamiento",
-    focus: "Pecho superior · Hombro · Tríceps · Abs",
-    duration: "80-95 min",
-    desc: "Inclinado primero, mechanical drop en lateral, fondos lastrados. Abs: situp con disco.",
-    exercises: [
-      ex("Incline Barbell Bench Press", "incline barbell bench press", "4", "8", "90s", "Pecho superior. No flares de codos."),
-      ex("Standing Barbell Overhead Press", "standing barbell overhead press", "4", "8", "90s", "Glúteos y core tensos. Sin piernas."),
-      ex("⚡ Cable Chest Fly Crossover", "cable crossover", "3", "12", "0s", "Superset con fondos lastrados."),
-      ex("⚡ Weighted Triceps Dip", "weighted dip", "3", "8-10", "90s", "Lean forward para pecho. Lockout completo."),
-      ex("Mechanical Drop Lateral Raise", "dumbbell lateral raise", "3", "8+8", "60s", "8 reps pesado → 8 reps al 50% sin descanso."),
-      ex("EZ Bar Skull Crusher (rest-pause)", "skull crusher", "3", "10", "60s", "Última: pausa 15s al fallo, AMRAP ×2."),
-      ex("Overhead Cable Triceps Extension", "overhead cable triceps extension", "3", "12", "60s", "Estiramiento largo de cabeza larga."),
-      ex("Weighted Decline Sit-Up", "weighted decline sit up", "4", "12", "75s", "Disco 10-15 kg sobre el pecho. Bajada controlada.", true),
-      ex("Cable Crunch (heavy)", "cable crunch", "4", "12", "60s", "Pesado. Redondea columna hasta que la espalda baja se involucre.", true),
-      ex("Stir-the-Pot on Stability Ball", "stir the pot", "3", "10/dir", "45s", "Plancha en pelota. Círculos lentos con codos.", true),
-    ],
-  },
-  {
-    key: "fri",
-    label: "Vie",
-    title: "Pull hipertrofia + Abs bajos",
-    focus: "Anchura espalda · Bíceps · Rear delts · Abs bajos",
-    duration: "85-95 min",
-    desc: "Jalón ancho, remo a una mano, predicador con drop. Abs: leg raise estricto + reverse crunch lastrado.",
-    exercises: [
-      ex("Wide Grip Lat Pulldown", "lat pulldown", "4", "8", "90s", "Agarre ancho. Pull al pecho superior."),
-      ex("Single Arm Dumbbell Row", "single arm dumbbell row", "4", "10/side", "75s", "Estiramiento completo abajo. Pull a la cadera."),
-      ex("⚡ Cable Pullover", "cable pullover", "3", "12", "0s", "Superset con reverse pec deck."),
-      ex("⚡ Reverse Pec Deck", "reverse pec deck", "3", "15", "75s", "Lidera con codos. Aprieta rear delts."),
-      ex("Incline Dumbbell Curl", "incline dumbbell curl", "3", "10", "60s", "Brazo detrás del cuerpo. Estiramiento máximo."),
-      ex("Preacher Curl (drop set)", "preacher curl", "3", "10", "60s", "Última: drop ×AMRAP al 30% menos."),
-      ex("Heavy Dumbbell Shrug", "dumbbell shrug", "3", "12", "60s", "Pausa 1s arriba. Sin rotación."),
-      ex("Strict Hanging Leg Raise", "hanging leg raise", "4", "12-15", "75s", "Sin balanceo. Piernas rectas. Curl de pelvis al final.", true),
-      ex("Decline Reverse Crunch (weighted)", "decline reverse crunch", "4", "15", "60s", "Mancuerna entre tobillos. Curl de pelvis estricto.", true),
-      ex("Slow Bicycle Crunch", "bicycle crunch", "3", "30", "45s", "Tempo 2-2. Codo a rodilla opuesta tocando.", true),
-    ],
-  },
-  {
-    key: "sat",
-    label: "Sáb",
-    title: "Legs hipertrofia + Circuito ABS quema",
-    duration: "90-105 min",
-    focus: "Cuádriceps · Glúteos · Femoral · Circuito core",
-    desc: "Pierna con máquinas + búlgara. Cierre con circuito de 4 rondas brutal.",
-    exercises: [
-      ex("Hack Squat", "hack squat", "4", "10", "90s", "Profundo. Empuja con talones."),
-      ex("Bulgarian Split Squat", "bulgarian split squat", "4", "10/leg", "75s", "Mancuernas pesadas. Caída vertical."),
-      ex("Barbell Hip Thrust", "barbell hip thrust", "4", "10", "90s", "Pausa 1s arriba. Glúteos en lockout."),
-      ex("Seated Leg Curl (drop set)", "seated leg curl", "3", "12", "60s", "Última: drop ×AMRAP."),
-      ex("Leg Extension (rest-pause)", "leg extension", "3", "15", "60s", "Última: 2 pausas de 15s."),
-      ex("Seated Calf Raise", "seated calf raise", "4", "20", "45s", "Bombeo extremo. Rango completo."),
-      ex("CIRCUIT: Hanging Knee Raise", "hanging knee raise", "4", "15", "0s", "4 rondas. Sin descanso entre A-E. 30s entre rondas.", true),
-      ex("CIRCUIT: Cable Crunch", "cable crunch", "4", "15", "0s", "Pesado. Sigue de inmediato.", true),
-      ex("CIRCUIT: V-Up", "v up", "4", "15", "0s", "Toca pies. Sigue.", true),
-      ex("CIRCUIT: Side Plank with Hip Lift", "side plank hip lift", "4", "20s/side", "0s", "Cadera arriba y abajo lento. Sigue.", true),
-      ex("CIRCUIT: Mountain Climber", "mountain climber", "4", "30s", "30s", "Explosivo. Cierra la ronda. Descansa 30s.", true),
-    ],
-  },
-  {
-    key: "sun",
-    label: "Dom",
-    title: "Descanso + Refeed",
-    focus: "Recuperación · Pasos · Carbos a TDEE",
-    duration: "Easy day",
-    desc: "Sube calorías a ~2,500 (refeed). Camina 12k pasos. Estira. Recupera mente y glucógeno.",
-    exercises: [
-      ex("Easy Walk", "walking", "1", "60 min", "0s", "Pasos largos. Outdoor. 12k pasos meta del día."),
-      ex("Full Body Mobility", "stretching", "1", "15 min", "0s", "Cadera, isquios, hombros, t-spine."),
-    ],
-  },
+const GIF_CACHE_KEY = "plan_coach_gifs_v3";
+// Copia local del progreso para no perder series si falla la conexión en el gimnasio.
+const PROGRESS_CACHE_KEY = "plan_coach_progress_cache_v1";
+const EMPTY_PROGRESS = { log: {}, alternatives: {}, foodLogs: {}, cardio: {}, checkins: {}, fatigue: {}, notes: {}, settings: { unit: "lb", sound: true } };
+const FATIGUE = [
+  { id: "green", label: "Verde", text: "Descansado, sin dolor → rutina completa." },
+  { id: "yellow", label: "Amarillo", text: "Mal sueño o agujetas fuertes → 1 serie menos en accesorios y sin fallo." },
+  { id: "red", label: "Rojo", text: "Fiebre, mareo, dolor torácico, falta de aire o lesión aguda → hoy no entrenes. Ante dolor torácico intenso o dificultad respiratoria, atención urgente." },
 ];
-
-function ex(name, search, sets, reps, rest, cue, abs = false) {
-  return { name, search, sets, reps, rest, cue, abs };
-}
 
 function App() {
   const { user } = useAuth();
-  const todayKey = useMemo(() => getTodayKey(), []);
-  const [active, setActive] = useState(todayKey);
+  const today = localDate();
+  const [plan, setPlan] = useState(DEFAULT_PLAN);
+  const [progress, setProgress] = useState(EMPTY_PROGRESS);
+  const [view, setView] = useState("train");
+  const [sessionId, setSessionId] = useState(null);
   const [gifCache, setGifCache] = useLocalStorage(GIF_CACHE_KEY, {});
-  const [progress, setProgress] = useLocalStorage(PROGRESS_KEY, {});
-  const [days, setDays] = useState(defaultDays);
-  const [planMeta, setPlanMeta] = useState(null);
-  const [aiOpen, setAiOpen] = useState(false);
-  const [open, setOpen] = useState({});
-  const [media, setMedia] = useState(null);
-  const [mediaExpanded, setMediaExpanded] = useState(true);
   const [timer, setTimer] = useState(null);
+  const [timerNow, setTimerNow] = useState(Date.now());
+  const [chatOpen, setChatOpen] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [unsaved, setUnsaved] = useState(false);
+  const [welcome, setWelcome] = useState(false);
+  const synced = useRef(false);
+  const latest = useRef(EMPTY_PROGRESS);
+  const audio = useRef(null);
 
-  const day = useMemo(() => days.find((d) => d.key === active) || days[0], [active, days]);
+  const days = plan.blocks?.[plan.activeBlock]?.days || [];
+  const settings = { ...EMPTY_PROGRESS.settings, ...progress.settings };
+  const week = programWeek(plan, today);
+  const phase = (plan.phases || []).find((item) => week >= item.from && week <= item.to) || null;
+  const todayEntry = plan.week?.find((item) => item.id === WEEKDAY_IDS[new Date().getDay()]);
+  const doneSessions = useMemo(() => completedSessions(plan, progress.log, week), [plan, progress.log, week]);
+  const nextPending = days.find((item) => !doneSessions.has(item.id));
+  const activeSession = sessionId || todayEntry?.dayId || (todayEntry?.type === "cardio" ? "cardio" : "rest");
+  const selectedDay = days.find((item) => item.id === activeSession);
 
-  // On login: pull the user's saved plan (if any) and server-side progress.
-  // The synced flag gates the save effect so we don't overwrite the server
-  // with empty local state before the initial fetch resolves.
-  const synced = React.useRef(false);
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const { plan } = await api.getPlan();
-        if (!cancelled && plan?.days?.length) {
-          setDays(plan.days);
-          setPlanMeta(plan.meta || null);
+        const [{ plan: savedPlan }, { progress: savedProgress }] = await Promise.all([api.getPlan(), api.getProgress()]);
+        if (cancelled) return;
+        // Un plan guardado de otra versión se reemplaza por el plan de 8 semanas.
+        // Los planes importados desde PDF se conservan aunque cambie PLAN_VERSION.
+        if (savedPlan?.blocks && (savedPlan.version === PLAN_VERSION || savedPlan.source === "import")) setPlan(savedPlan);
+        else {
+          // Un usuario nuevo recibe el plan como ejemplo, sin los datos personales de Adam.
+          const fresh = savedPlan && !savedPlan.sample ? DEFAULT_PLAN : { ...DEFAULT_PLAN, sample: true, nutrition: { ...DEFAULT_PLAN.nutrition, note: "Punto de partida orientativo: ajusta las calorías con tu peso y cintura cada dos semanas." } };
+          setPlan(fresh);
+          await api.savePlan(fresh);
         }
-      } catch (e) {
-        console.warn("plan load failed", e.message);
+        if (!savedPlan) setWelcome(true);
+        const cached = readProgressCache(user.id);
+        // Si quedaron series sin subir (sin conexión), la copia local gana y se sube ahora.
+        const source = cached?.dirty ? cached.progress : savedProgress;
+        if (source && typeof source === "object") setProgress(normalizeProgress(source));
+        synced.current = true;
+      } catch (error) {
+        console.warn("Workspace sync failed", error.message);
+        const cached = readProgressCache(user.id);
+        if (cached?.progress) { setProgress(normalizeProgress(cached.progress)); synced.current = true; setUnsaved(true); }
+      } finally {
+        if (!cancelled) setReady(true);
       }
-      try {
-        const { progress: remote } = await api.getProgress();
-        if (!cancelled && remote && Object.keys(remote).length) setProgress(remote);
-      } catch (e) {
-        console.warn("progress load failed", e.message);
-      }
-      if (!cancelled) synced.current = true;
     })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { cancelled = true; };
   }, []);
 
-  // Debounced push of progress to the server after the initial sync.
   useEffect(() => {
+    latest.current = progress;
     if (!synced.current) return;
-    const id = setTimeout(() => {
-      api.saveProgress(progress).catch((e) => console.warn("progress save failed", e.message));
-    }, 800);
+    writeProgressCache(user.id, progress, true);
+    const id = setTimeout(() => pushProgress(progress), 700);
     return () => clearTimeout(id);
   }, [progress]);
 
-  function applyPlan(plan) {
-    if (plan?.days?.length) {
-      setDays(plan.days);
-      setPlanMeta(plan.meta || null);
-      setActive(plan.days.find((d) => d.key === todayKey) ? todayKey : plan.days[0].key);
+  useEffect(() => {
+    if (!unsaved) return;
+    const retry = () => pushProgress(latest.current);
+    window.addEventListener("online", retry);
+    const id = setInterval(retry, 20_000);
+    return () => { window.removeEventListener("online", retry); clearInterval(id); };
+  }, [unsaved]);
+
+  async function pushProgress(value) {
+    try {
+      await api.saveProgress(value);
+      if (latest.current === value) writeProgressCache(user.id, value, false);
+      setUnsaved(false);
+    } catch {
+      setUnsaved(true);
     }
   }
 
-  function resetToDefaultPlan() {
-    setDays(defaultDays);
-    setPlanMeta(null);
-  }
-
   useEffect(() => {
-    day.exercises.forEach((exercise) => {
-      if (!gifCache[exercise.search]?.gif && gifCache[exercise.search]?.status !== "loading") {
-        loadGif(exercise.search, gifCache, setGifCache);
+    if (!synced.current) return;
+    const id = setTimeout(() => api.savePlan(plan).catch(() => {}), 700);
+    return () => clearTimeout(id);
+  }, [plan]);
+
+  // Solo los ejercicios sin demostración verificada pasan por el buscador del servidor.
+  useEffect(() => {
+    if (!selectedDay) return;
+    let cancelled = false;
+    (async () => {
+      const pending = selectedDay.exercises.map((exercise) => currentAlternative(exercise, progress.alternatives).search).filter((search) => !exerciseMedia(search));
+      for (let start = 0; start < pending.length; start += 3) {
+        if (cancelled) break;
+        await Promise.all(pending.slice(start, start + 3).map((search) => ensureGif(search, gifCache, setGifCache, false)));
       }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active]);
+    })();
+    return () => { cancelled = true; };
+  }, [selectedDay?.id, progress.alternatives]);
 
   useEffect(() => {
-    if (!timer || timer.left <= 0) return;
-    const id = setInterval(() => {
-      setTimer((t) => {
-        if (!t) return null;
-        if (t.left <= 1) {
-          try {
-            navigator.vibrate?.([250, 120, 250]);
-          } catch {}
-          return null;
-        }
-        return { ...t, left: t.left - 1 };
-      });
-    }, 1000);
+    if (!timer || timer.paused) return;
+    const id = setInterval(() => setTimerNow(Date.now()), 250);
     return () => clearInterval(id);
   }, [timer]);
 
+  const timerLeft = timer ? (timer.paused ? timer.remaining : Math.max(0, Math.ceil(((timer.end || 0) - timerNow) / 1000))) : 0;
   useEffect(() => {
-    if (media) setMediaExpanded(true);
-  }, [media]);
-
-  function refreshGif(search) {
-    if (!ENABLE_EXERCISEDB_LOOKUP || NO_GIF_SEARCHES.has(search)) {
-      setGifCache((prev) => ({
-        ...prev,
-        [search]: {
-          ...(prev[search] || {}),
-          status: "failed",
-          ts: Date.now(),
-        },
-      }));
-      return;
+    if (timer && !timer.paused && timerLeft === 0) {
+      navigator.vibrate?.([220, 120, 220]);
+      if (settings.sound) beep(audio);
+      const id = setTimeout(() => setTimer(null), 2500);
+      return () => clearTimeout(id);
     }
+  }, [timerLeft]);
 
-    setGifCache((prev) => {
-      const current = prev[search] || {};
-      return {
-        ...prev,
-        [search]: { ...current, status: "loading" },
-      };
+  function patchProgress(key, value) { setProgress((current) => ({ ...current, [key]: typeof value === "function" ? value(current[key] || {}) : value })); }
+  function updateSet(exerciseId, setIndex, patch) {
+    setProgress((current) => {
+      const dayLog = current.log?.[today] || {};
+      const rows = [...(dayLog[exerciseId] || [])];
+      rows[setIndex] = { ...(rows[setIndex] || {}), ...patch };
+      return { ...current, log: { ...current.log, [today]: { ...dayLog, [exerciseId]: rows } } };
     });
-    setTimeout(() => loadGif(search, gifCache, setGifCache, true), 50);
+  }
+  function rotateAlternative(exercise) {
+    patchProgress("alternatives", (current) => ({ ...current, [exercise.id]: ((current[exercise.id] || 0) + 1) % exercise.alternatives.length }));
+  }
+  function resetDay(day) {
+    if (!window.confirm("¿Borrar las series registradas hoy en esta sesión?")) return;
+    const ids = new Set(day.exercises.map((exercise) => exercise.id));
+    patchProgress("log", (current) => ({ ...current, [today]: Object.fromEntries(Object.entries(current[today] || {}).filter(([key]) => !ids.has(key))) }));
+  }
+  function startTimer(seconds, label) {
+    unlockAudio(audio);
+    setTimerNow(Date.now());
+    setTimer({ end: Date.now() + seconds * 1000, total: seconds, paused: false, remaining: seconds, label });
+    navigator.wakeLock?.request?.("screen").catch(() => {});
+  }
+  function toggleTimer() {
+    setTimer((current) => {
+      if (!current) return current;
+      if (current.paused) return { ...current, paused: false, end: Date.now() + current.remaining * 1000 };
+      return { ...current, paused: true, remaining: timerLeft };
+    });
+  }
+  function shiftTimer(seconds) {
+    setTimer((current) => current && (current.paused
+      ? { ...current, remaining: Math.max(0, current.remaining + seconds) }
+      : { ...current, end: Math.max(Date.now(), current.end + seconds * 1000), total: Math.max(current.total, timerLeft + seconds) }));
+  }
+  function openSession(id) { setSessionId(id); setView("train"); window.scrollTo({ top: 0, behavior: "smooth" }); }
+  function setWeek(target) {
+    const start = new Date(`${today}T12:00:00`);
+    start.setDate(start.getDate() - (start.getDay() + 6) % 7 - (target - 1) * 7);
+    setPlan((current) => ({ ...current, startDate: localDate(start) }));
   }
 
-  function setSetValue(exId, setNo, field, value) {
-    setProgress((prev) => ({
-      ...prev,
-      [exId]: {
-        ...(prev[exId] || {}),
-        [setNo]: {
-          ...((prev[exId] || {})[setNo] || {}),
-          [field]: value,
-        },
-      },
-    }));
-  }
-
-  function toggleDone(exId, setNo, rest) {
-    const nextDone = !progress?.[exId]?.[setNo]?.done;
-    setSetValue(exId, setNo, "done", nextDone);
-    if (nextDone) {
-      const seconds = parseRest(rest);
-      if (seconds > 0) setTimer({ left: seconds, total: seconds });
-    }
-  }
+  if (!ready) return <div className="boot"><LoaderCircle className="spin" /> Sincronizando tu plan…</div>;
 
   return (
-    <main className="app">
-      <header className="hero">
-        <div className="topbar">
-          <button className="ai-btn" onClick={() => setAiOpen(true)}>
-            <Sparkles size={15} /> Generar plan con IA
-          </button>
-          <div className="topbar-right">
-            <AiCreditsIndicator user={user} />
-            <LogoutButton />
-          </div>
+    <main className={`app-shell ${timer ? "with-timer" : ""}`}>
+      <header className="app-header">
+        <div className="phase-pill">
+          <span className="week-badge"><small>Semana</small><b>{week}</b><small>/{plan.totalWeeks || 8}</small></span>
+          <span className="phase-copy"><b>{phase?.title || plan.name}</b><small>{phase?.rir}{phase?.deload ? " · descarga" : ""}</small></span>
         </div>
-        <div className="eyebrow">EXTREME CUT 4 sem · PPL×2 · Abs avanzados · RPE 8-9</div>
-        <h1>ADAM.SHRED</h1>
-        {planMeta?.summary && <div className="plan-banner">🤖 {planMeta.summary}</div>}
-        <p>
-          Plan extremo de 4 semanas. Compuestos pesados, drop sets, rest-pause,
-          supersets antagonistas, abs avanzados (dragon flag, windshield wipers,
-          ab wheel de pie). Cardio quirúrgico. Déficit periodizado.
-        </p>
-
-        <div className="stats">
-          <Stat value="1,950" label="kcal target" />
-          <Stat value="160g" label="protein" />
-          <Stat value="8k → 10k" label="steps/día" />
-          <Stat value={day.label} label="today" />
-        </div>
+        <div className="user-menu"><CircleUserRound size={22} /><LogoutButton /></div>
       </header>
+      {unsaved && <div className="offline-bar" role="status"><CloudOff /> Sin conexión: tus series se guardan en el móvil y se subirán solas.</div>}
 
-      <nav className="tabs">
-        {days.map((d) => (
-          <button
-            key={d.key}
-            className={d.key === active ? "active" : ""}
-            onClick={() => setActive(d.key)}
-          >
-            {d.label}
-          </button>
-        ))}
+      <section className="content">
+        {view === "train" && <SessionPicker days={days} week={plan.week} active={activeSession} todayEntry={todayEntry} done={doneSessions} onPick={openSession} />}
+        {view === "train" && selectedDay && <WorkoutView key={selectedDay.id} day={selectedDay} plan={plan} phase={phase} today={today} progress={progress} settings={settings} gifCache={gifCache} onSet={updateSet} onRotate={rotateAlternative} onReset={() => resetDay(selectedDay)} onRetryGif={(search) => ensureGif(search, gifCache, setGifCache, true)} onTimer={startTimer} onFatigue={(value) => patchProgress("fatigue", (current) => ({ ...current, [today]: value }))} onNote={(text) => patchProgress("notes", (current) => ({ ...current, [today]: { ...current[today], [selectedDay.id]: text } }))} />}
+        {view === "train" && !selectedDay && <RestDayView kind={activeSession} plan={plan} phase={phase} today={today} progress={progress} nextPending={nextPending} onOpen={openSession} onCardio={(minutes) => patchProgress("cardio", (current) => ({ ...current, [today]: current[today] ? 0 : minutes }))} />}
+        {view === "week" && <WeekView plan={plan} week={week} phase={phase} today={today} progress={progress} settings={settings} done={doneSessions} onOpen={openSession} onWeek={setWeek} onCheckin={(patch) => patchProgress("checkins", (current) => ({ ...current, [today]: { ...current[today], ...patch } }))} onSettings={(patch) => patchProgress("settings", (current) => ({ ...current, ...patch }))} onPlan={setPlan} />}
+        {view === "progress" && <ProgressView plan={plan} progress={progress} settings={settings} week={week} />}
+        {view === "food" && <FoodView nutrition={plan.nutrition} progress={progress} setProgress={setProgress} imported={plan.source === "import"} />}
+      </section>
+
+      <nav className="bottom-nav" aria-label="Navegación principal">
+        <NavButton active={view === "train"} icon={<Dumbbell />} label="Entreno" onClick={() => { setView("train"); setSessionId(null); }} />
+        <NavButton active={view === "week"} icon={<CalendarDays />} label="Plan" onClick={() => setView("week")} />
+        <NavButton active={view === "progress"} icon={<Activity />} label="Progreso" onClick={() => setView("progress")} />
+        <NavButton active={view === "food"} icon={<Utensils />} label="Comida" onClick={() => setView("food")} />
+        <NavButton active={chatOpen} icon={<MessageCircle />} label="Coach" onClick={() => setChatOpen(true)} accent />
       </nav>
 
-      <section className="day-card">
-        <div className="day-head">
-          <div>
-            <h2>{day.title}</h2>
-            <p>
-              {day.focus} · {day.desc}
-            </p>
-          </div>
-          <span className="pill">{day.duration}</span>
-        </div>
-
-        <div className="exercise-list">
-          {day.exercises.map((exercise, index) => {
-            const exId = `${day.key}-${slug(exercise.name)}-${index}`;
-            const gif = gifCache[exercise.search]?.gif || "";
-            const status = gifCache[exercise.search]?.status || "idle";
-            const isOpen = !!open[exId];
-
-            return (
-              <article
-                key={exId}
-                className={`exercise ${exercise.abs ? "abs" : ""}`}
-              >
-                <button
-                  className="exercise-top"
-                  onClick={() => setOpen((o) => ({ ...o, [exId]: !o[exId] }))}
-                >
-                  <GifBox
-                    name={exercise.name}
-                    gif={gif}
-                    status={status}
-                    onOpen={() => setMedia({ name: exercise.name, gif })}
-                  />
-                  <div className="exercise-info">
-                    <h3>{exercise.abs ? "★ " : ""}{exercise.name}</h3>
-                    <div className="chips">
-                      <span>{exercise.sets} sets</span>
-                      <span>{exercise.reps}</span>
-                      <span>{exercise.rest} rest</span>
-                    </div>
-                    <p>{exercise.cue}</p>
-                  </div>
-                </button>
-
-                {isOpen && (
-                  <div className="exercise-body">
-                    <div className="actions">
-                      <button
-                        className="primary"
-                        onClick={() => setMedia({ name: exercise.name, gif })}
-                        disabled={!gif}
-                      >
-                        <Play size={16} /> Ver GIF grande
-                      </button>
-                      <button onClick={() => openShorts(exercise.name)}>
-                        <ExternalLink size={16} /> YouTube Shorts
-                      </button>
-                      <button onClick={() => refreshGif(exercise.search)}>
-                        <RefreshCw size={16} /> Refresh GIF
-                      </button>
-                      <button onClick={() => setTimer({ left: parseRest(exercise.rest), total: parseRest(exercise.rest) })}>
-                        <TimerReset size={16} /> Rest
-                      </button>
-                    </div>
-
-                    <p className="cue">
-                      <b>Form cue:</b> {exercise.cue}
-                    </p>
-
-                    <SetTracker
-                      exId={exId}
-                      sets={exercise.sets}
-                      rest={exercise.rest}
-                      progress={progress}
-                      setSetValue={setSetValue}
-                      toggleDone={toggleDone}
-                    />
-                  </div>
-                )}
-              </article>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="plan">
-        <div className="day-head">
-          <div>
-            <h2>Plan & Macros</h2>
-            <p>
-              El objetivo es bajar grasa total para revelar abs bajos. La parte
-              baja sale al final, así que manda el déficit, pasos y constancia.
-            </p>
-          </div>
-          <span className="pill">Health-adjusted</span>
-        </div>
-
-        <div className="grid">
-          <Info title="Macros periodizados (4 sem)">
-            <ul>
-              <li><b>Sem 1-2:</b> 1,950 kcal · 175P / 210C / 55F</li>
-              <li><b>Sem 3:</b> 1,850 kcal · 180P / 180C / 55F</li>
-              <li><b>Sem 4 (final push):</b> 1,750 kcal · 180P / 150C / 55F</li>
-              <li><b>Refeed dom:</b> 2,500 kcal — repón glucógeno</li>
-              <li><b>Pre-entreno:</b> 40g carbo + 30g proteína (60 min antes)</li>
-              <li><b>Post-entreno:</b> 50g carbo rápido + 40g whey</li>
-            </ul>
-          </Info>
-          <Info title="Cardio quirúrgico">
-            <ul>
-              <li><b>Pasos:</b> 12,000/día (no negociable)</li>
-              <li><b>Ayunas LISS</b> 3×/sem — 30 min cinta 12% / 5 km/h</li>
-              <li><b>HIIT assault bike</b> 2×/sem post-pesas (lun + jue) — 10 min: 20s sprint / 40s easy ×10</li>
-              <li><b>Sled push</b> sáb post circuito — 6×20m</li>
-              <li>Nunca HIIT antes de pesas. Nunca cardio ayunas &gt; 30 min.</li>
-            </ul>
-          </Info>
-          <Info title="Suplementación + reglas">
-            <ul>
-              <li><b>Creatina:</b> 5g/día (preserva fuerza en cut)</li>
-              <li><b>Cafeína:</b> 200mg pre-entreno (no &gt; 4pm)</li>
-              <li><b>Electrolitos:</b> sodio 4g + potasio 3.5g/día</li>
-              <li><b>Sueño:</b> 7-8h (sin esto, cortisol arruina cut)</li>
-              <li>Cero alcohol · ayuno 14h opcional</li>
-              <li>Foto + medidas: sem 0 y sem 4</li>
-            </ul>
-          </Info>
-          <Info title="Periodización 4 semanas">
-            <ul>
-              <li><b>Sem 1:</b> Acumulación · RPE 7-8</li>
-              <li><b>Sem 2:</b> Acumulación + 10% peso/reps · RPE 8</li>
-              <li><b>Sem 3:</b> Intensificación brutal · drops en TODO · RPE 9</li>
-              <li><b>Sem 4:</b> Peak week · -20% volumen · RPE 8-9 · foto final</li>
-            </ul>
-          </Info>
-          <Info title="Reglas de intensidad (no negociables)">
-            <ul>
-              <li><b>RPE 8-9</b> compuestos · <b>RPE 9-10</b> aislamientos</li>
-              <li>Última serie de cada aislamiento → <b>drop o rest-pause</b></li>
-              <li>Tempo 3-1-1 en compuestos (3s bajada)</li>
-              <li>⚡ = superset antagonista, sin descanso</li>
-              <li>Cero celular entre sets · diario de pesos obligatorio</li>
-            </ul>
-          </Info>
-          <Info title="Sobre los GIFs">
-            <p>
-              Los GIFs vienen de ExerciseDB. Si salen cortados, toca “Ver GIF grande”.
-              Si siguen mal, usa Shorts: normalmente es mejor para forma.
-            </p>
-          </Info>
-          <Info title="Reset">
-            <div className="actions">
-              <button onClick={() => setGifCache({})}>
-                <RefreshCw size={16} /> Clear GIF cache
-              </button>
-              <button onClick={() => confirm("Reset progress?") && setProgress({})}>
-                <Trash2 size={16} /> Reset progress
-              </button>
-            </div>
-          </Info>
-        </div>
-      </section>
-
-      {media && (
-        <div className="modal" onClick={() => setMedia(null)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <b>{media.name}</b>
-              <button onClick={() => setMedia(null)}>
-                <X size={18} />
-              </button>
-            </div>
-            {media.gif ? (
-              <img
-                className={`modal-gif ${mediaExpanded ? "expanded" : ""}`}
-                src={media.gif}
-                alt={`${media.name} exercise GIF`}
-              />
-            ) : (
-              <div className="empty">No GIF loaded</div>
-            )}
-            <div className="actions modal-actions">
-              {media.gif && (
-                <button onClick={() => setMediaExpanded((v) => !v)}>
-                  {mediaExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-                  {mediaExpanded ? " Tamaño real" : " Grande"}
-                </button>
-              )}
-              <button className="primary" onClick={() => openShorts(media.name)}>
-                <ExternalLink size={16} /> Video HD
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {timer && timer.left > 0 && (
-        <div className={`timer ${timer.left <= 5 ? "danger" : ""}`}>
-          <div>
-            <span>Rest timer</span>
-            <b>{formatTime(timer.left)}</b>
-          </div>
-          <button onClick={() => setTimer(null)}>Stop</button>
-        </div>
-      )}
-
-      {aiOpen && (
-        <AiPlanModal
-          onClose={() => setAiOpen(false)}
-          onApply={(plan) => {
-            applyPlan(plan);
-            setAiOpen(false);
-          }}
-          onReset={() => {
-            resetToDefaultPlan();
-            setAiOpen(false);
-          }}
-          hasCustomPlan={!!planMeta}
-        />
-      )}
+      {timer && <RestTimer timer={timer} left={timerLeft} sound={settings.sound} onSound={() => patchProgress("settings", (current) => ({ ...current, sound: !settings.sound }))} onShift={shiftTimer} onToggle={toggleTimer} onClose={() => setTimer(null)} />}
+      {welcome && <div className="sheet-backdrop" onClick={() => setWelcome(false)}><section className="welcome-sheet" onClick={(event) => event.stopPropagation()}><h2>Bienvenido</h2><p>¿Tienes tu rutina en PDF? Súbela y la convierto en tu plan semanal. Si no, empieza con el plan de ejemplo y cámbialo cuando quieras desde la pestaña Plan.</p><PlanImport plan={plan} onPlan={(next) => { setPlan(next); setWelcome(false); }} compact /><button className="auth-switch" onClick={() => setWelcome(false)}>Usar el plan de ejemplo</button></section></div>}
+      {chatOpen && <CoachSheet user={user} plan={plan} onPlan={setPlan} onClose={() => setChatOpen(false)} />}
     </main>
   );
 }
 
-function AiPlanModal({ onClose, onApply, onReset, hasCustomPlan }) {
-  const [goals, setGoals] = useState("");
-  const [daysPerWeek, setDaysPerWeek] = useState(5);
-  const [experience, setExperience] = useState("intermediate");
-  const [equipment, setEquipment] = useState("full gym");
-  const [notes, setNotes] = useState("");
+function SessionPicker({ days, week = [], active, todayEntry, done, onPick }) {
+  const short = Object.fromEntries(week.filter((item) => item.dayId).map((item) => [item.dayId, item.label.slice(0, 3)]));
+  const cardioDays = week.filter((item) => item.type === "cardio").map((item) => item.label.slice(0, 3));
+  return <div className="session-picker" role="tablist" aria-label="Elegir sesión">
+    {days.map((item) => <button key={item.id} role="tab" aria-selected={active === item.id} className={`${active === item.id ? "active" : ""} ${done.has(item.id) ? "done" : ""}`} onClick={() => onPick(item.id)}>
+      <small>{short[item.id] || "Día"}{todayEntry?.dayId === item.id && <em>hoy</em>}</small><b>{item.title}</b>{done.has(item.id) && <Check className="chip-check" />}
+    </button>)}
+    {!!cardioDays.length && <button role="tab" aria-selected={active === "cardio"} className={active === "cardio" ? "active cardio" : "cardio"} onClick={() => onPick("cardio")}><small>{cardioDays.join(" · ")}{todayEntry?.type === "cardio" && <em>hoy</em>}</small><b>Cardio</b></button>}
+  </div>;
+}
+
+function WorkoutView({ day, plan, phase, today, progress, settings, gifCache, onSet, onRotate, onReset, onRetryGif, onTimer, onFatigue, onNote }) {
+  const fatigue = progress.fatigue?.[today] || "green";
+  const todayLog = progress.log?.[today] || {};
+  const targets = day.exercises.map((exercise) => targetSets(exercise, phase, fatigue));
+  const doneCounts = day.exercises.map((exercise, index) => (todayLog[exercise.id] || []).slice(0, targets[index]).filter((row) => row?.done).length);
+  const totals = { all: targets.reduce((a, b) => a + b, 0), done: doneCounts.reduce((a, b) => a + b, 0) };
+  const firstOpen = day.exercises.findIndex((_, index) => doneCounts[index] < targets[index]);
+  const [open, setOpen] = useState(firstOpen === -1 ? null : day.exercises[firstOpen].id);
+  const cardRefs = useRef({});
+  const percent = totals.all ? Math.round((totals.done / totals.all) * 100) : 0;
+  const minutes = sessionMinutes(day, todayLog);
+
+  function finishSet(index, exercise, setIndex, row) {
+    onSet(exercise.id, setIndex, { ...row, done: true });
+    const counts = doneCounts.map((count, i) => (i === index ? count + 1 : count));
+    const pending = (i) => counts[i] < targets[i];
+    const lastOfExercise = !pending(index);
+    const after = day.exercises.findIndex((_, i) => i > index && pending(i));
+    const nextIndex = after !== -1 ? after : day.exercises.findIndex((_, i) => pending(i));
+    const sessionFinished = nextIndex === -1;
+    if (!sessionFinished) onTimer(Number(exercise.rest) || 90, lastOfExercise ? `Siguiente: ${currentAlternative(day.exercises[nextIndex], progress.alternatives).name}` : `${currentAlternative(exercise, progress.alternatives).name} · serie ${setIndex + 2}`);
+    if (lastOfExercise && nextIndex !== -1) {
+      const nextId = day.exercises[nextIndex].id;
+      setOpen(nextId);
+      setTimeout(() => cardRefs.current[nextId]?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
+    }
+  }
+
+  return <div className="view-enter">
+    <div className="session-head">
+      <div><span className="eyebrow">{[day.subtitle, day.duration].filter(Boolean).join(" · ")}</span><h1>{day.title}</h1></div>
+      <button className="icon-text" onClick={onReset}><RotateCcw /> Reiniciar</button>
+    </div>
+    <div className="session-progress"><div className="progress-track"><i style={{ width: `${percent}%` }} /></div><strong>{totals.done}<small>/{totals.all} series</small></strong></div>
+    {minutes !== null && <p className="session-time"><Timer /> {minutes} min desde la primera serie{day.duration ? ` · objetivo ${day.duration}` : ""}</p>}
+
+    <div className="fatigue" role="radiogroup" aria-label="Control de fatiga">
+      {FATIGUE.map((item) => <button key={item.id} role="radio" aria-checked={fatigue === item.id} className={`${item.id} ${fatigue === item.id ? "active" : ""}`} onClick={() => onFatigue(item.id)}><i />{item.label}</button>)}
+    </div>
+    {fatigue !== "green" && <p className={`fatigue-note ${fatigue}`}>{FATIGUE.find((item) => item.id === fatigue).text}</p>}
+    {phase?.deload && <p className="fatigue-note deload">Semana de descarga: 50–60 % de las series y RIR 3–4. Las series ya están reducidas.</p>}
+
+    {plan.warmup && <details className="warmup"><summary><Flame /> Calentamiento{plan.source === "import" ? "" : " · 0–7 min"}</summary><p>{plan.warmup}</p></details>}
+
+    <div className="exercise-stack">
+      {day.exercises.map((exercise, index) => <ExerciseCard key={exercise.id} refCallback={(node) => { cardRefs.current[exercise.id] = node; }} index={index} exercise={exercise} target={targets[index]} rows={todayLog[exercise.id] || []} previous={lastSession(progress.log, exercise.id, today)} alternatives={progress.alternatives} phase={phase} settings={settings} gifCache={gifCache} open={open === exercise.id} onToggle={() => setOpen(open === exercise.id ? null : exercise.id)} onSet={onSet} onFinish={(setIndex, row) => finishSet(index, exercise, setIndex, { ...row, a: currentAlternative(exercise, progress.alternatives).search, t: Date.now() })} onRotate={() => onRotate(exercise)} onRetryGif={onRetryGif} />)}
+    </div>
+    <label className="session-note"><span><PenLine /> Nota de la sesión (dolor, sensaciones, máquina ocupada…)</span><textarea rows="2" value={progress.notes?.[today]?.[day.id] || ""} onChange={(event) => onNote(event.target.value.slice(0, 500))} placeholder="Ej. Hombro derecho molesto en el press inclinado" /></label>
+    {day.note && <article className="coach-note"><Sparkles /><p>{day.note}</p></article>}
+    <div className="timer-presets"><span>Descanso manual</span>{[60, 90, 120, 180].map((seconds) => <button key={seconds} onClick={() => onTimer(seconds, "Descanso")}>{formatTime(seconds)}</button>)}</div>
+  </div>;
+}
+
+function ExerciseCard({ refCallback, index, exercise, target, rows, previous, alternatives, phase, settings, gifCache, open, onToggle, onSet, onFinish, onRotate, onRetryGif }) {
+  const alternative = currentAlternative(exercise, alternatives);
+  const media = exerciseMedia(alternative.search);
+  const lookup = gifCache[alternative.search];
+  const doneRows = rows.slice(0, target).map((row, setIndex) => ({ ...row, setIndex })).filter((row) => row.done);
+  const activeIndex = Array.from({ length: target }, (_, setIndex) => setIndex).find((setIndex) => !rows[setIndex]?.done);
+  const complete = activeIndex === undefined;
+  const timed = isTimed(exercise.reps);
+  const hint = progressionHint(exercise, previous, settings.unit);
+  const suggestion = activeIndex === undefined ? null : suggestSet(exercise, rows, activeIndex, previous, hint);
+  const previousText = previous ? previous.rows.filter((row) => row?.done).map((row) => timed ? `${row.r}s` : `${fmtNum(row.w)}×${row.r}`).join(" · ") : "";
+
+  return <article ref={refCallback} className={`exercise-card ${exercise.tag || ""} ${complete ? "complete" : ""} ${open ? "open" : ""}`}>
+    <button className="exercise-summary" onClick={onToggle} aria-expanded={open}>
+      <span className="exercise-number">{complete ? <Check /> : index + 1}</span>
+      <span className="exercise-copy">
+        <b>{alternative.name}</b>
+        <span className="exercise-meta"><strong>{target} × {exercise.reps}</strong><span>{formatTime(exercise.rest)} desc.</span>{exercise.main && <em>Base</em>}</span>
+        <span className="pips">{Array.from({ length: target }, (_, i) => <i key={i} className={rows[i]?.done ? "on" : ""} />)}</span>
+      </span>
+      {!open && <Thumb media={media} lookup={lookup} name={alternative.name} />}
+      <ChevronDown className="chevron" />
+    </button>
+
+    {open && <div className="exercise-body">
+      <ExerciseMedia key={alternative.search} media={media} lookup={lookup} name={alternative.name} search={alternative.search} onRetry={() => onRetryGif(alternative.search)} />
+      <p className="cue"><Sparkles /> {exercise.cue}</p>
+      <div className="history-line">
+        <span><History /> {previous ? <>Última vez <b>{previousText || "sin series"}</b></> : timed ? <>Primera vez: aguanta con técnica limpia</> : <>Primera vez: elige un peso con {phase?.rir || "RIR 2"}</>}</span>
+        {hint && <span className="hint-up"><TrendingUp /> Sube a {fmtNum(hint.weight)} {settings.unit}</span>}
+      </div>
+      {exercise.alternatives.length > 1 && <button className="swap-button" onClick={onRotate}><ArrowRightLeft /> Cambiar a {exercise.alternatives[((alternatives?.[exercise.id] || 0) + 1) % exercise.alternatives.length].name}</button>}
+
+      {!!doneRows.length && <ol className="done-sets">{doneRows.map((row) => <li key={row.setIndex}>
+        <span className="set-tag">S{row.setIndex + 1}</span>
+        <b>{timed ? `${row.r} s` : <>{fmtNum(row.w)} <small>{settings.unit}</small> × {row.r}</>}</b>
+        {row.rir !== undefined && row.rir !== null && <span className="rir-tag">RIR {row.rir}</span>}
+        <button onClick={() => onSet(exercise.id, row.setIndex, { done: false })} aria-label={`Deshacer serie ${row.setIndex + 1}`}><Undo2 /> Deshacer</button>
+      </li>)}</ol>}
+
+      {complete ? <div className="exercise-done"><Check /> Ejercicio completo</div> : <SetEditor key={`${activeIndex}-${alternative.search}`} exercise={exercise} setIndex={activeIndex} target={target} timed={timed} suggestion={suggestion} unit={settings.unit} rir={phase?.rir} onDone={(row) => onFinish(activeIndex, row)} />}
+    </div>}
+  </article>;
+}
+
+function SetEditor({ exercise, setIndex, target, timed, suggestion, unit, rir, onDone }) {
+  const [weight, setWeight] = useState(suggestion.w);
+  const [reps, setReps] = useState(suggestion.r);
+  const [effort, setEffort] = useState(null);
+  const step = unit === "kg" ? 2.5 : 5;
+  return <div className="set-editor">
+    <div className="set-editor-head"><b>Serie {setIndex + 1} <small>de {target}</small></b><span>Objetivo {exercise.reps}{timed ? "" : " reps"} · {rir || "RIR 2"}</span></div>
+    <div className={`steppers ${timed ? "single" : ""}`}>
+      {!timed && <Stepper label={`Peso · ${unit}`} value={weight} step={step} onChange={setWeight} decimal />}
+      <Stepper label={timed ? "Segundos" : "Reps"} value={reps} step={timed ? 5 : 1} onChange={setReps} />
+    </div>
+    <div className="rir-picker" role="radiogroup" aria-label="Repeticiones en reserva">
+      <span>RIR</span>{[0, 1, 2, 3, 4].map((value) => <button key={value} role="radio" aria-checked={effort === value} className={effort === value ? "active" : ""} onClick={() => setEffort(effort === value ? null : value)}>{value === 4 ? "4+" : value}</button>)}
+    </div>
+    <button className="done-button" onClick={() => onDone({ w: timed ? 0 : Number(weight) || 0, r: Number(reps) || 0, rir: effort })}><Check /><span>Serie hecha<small>Descanso {formatTime(exercise.rest)}</small></span></button>
+  </div>;
+}
+
+function Stepper({ label, value, step, onChange, decimal }) {
+  const set = (next) => onChange(Math.max(0, Math.round(next * 10) / 10));
+  return <div className="stepper">
+    <span>{label}</span>
+    <div>
+      <button onClick={() => set(Number(value || 0) - step)} aria-label={`Restar ${step}`}><Minus /></button>
+      <input inputMode={decimal ? "decimal" : "numeric"} value={value} onFocus={(event) => event.target.select()} onChange={(event) => onChange(event.target.value.replace(",", ".").replace(/[^0-9.]/g, ""))} aria-label={label} />
+      <button onClick={() => set(Number(value || 0) + step)} aria-label={`Sumar ${step}`}><Plus /></button>
+    </div>
+  </div>;
+}
+
+function ExerciseMedia({ media, lookup, name, search, onRetry }) {
+  const gif = media?.gif || (lookup?.status === "loaded" ? lookup.gif : null);
+  const youtube = media?.youtube || null;
+  const [mode, setMode] = useState("gif");
+  const [playing, setPlaying] = useState(false);
+  const shown = mode === "video" && youtube ? "video" : gif ? "gif" : youtube ? "video" : null;
+  const loading = !media && (!lookup || lookup.status === "loading");
+  return <div className="media">
+    <div className="media-frame">
+      {shown === "gif" && <img src={gif} alt={`Técnica de ${name}`} onError={media ? undefined : onRetry} />}
+      {shown === "video" && (playing
+        ? <iframe src={`https://www.youtube-nocookie.com/embed/${youtube}?autoplay=1&playsinline=1&rel=0&modestbranding=1`} title={`Video de técnica: ${name}`} allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen />
+        : <button className="video-poster" onClick={() => setPlaying(true)} aria-label={`Reproducir video de ${name}`}><img src={`https://i.ytimg.com/vi/${youtube}/hqdefault.jpg`} alt="" /><span><Play /></span></button>)}
+      {!shown && (loading
+        ? <div className="media-empty"><LoaderCircle className="spin" /> Buscando animación…</div>
+        : <div className="media-empty"><span>Sin animación para este ejercicio.</span><button onClick={onRetry}><RotateCcw /> Reintentar</button><a href={`https://www.youtube.com/results?search_query=${encodeURIComponent(`${name} técnica`)}`} target="_blank" rel="noopener noreferrer"><Video /> Buscar en YouTube</a></div>)}
+    </div>
+    {gif && youtube && <div className="media-tabs" role="tablist">
+      <button role="tab" aria-selected={shown === "gif"} className={shown === "gif" ? "active" : ""} onClick={() => setMode("gif")}><ImageIcon /> Animación</button>
+      <button role="tab" aria-selected={shown === "video"} className={shown === "video" ? "active" : ""} onClick={() => setMode("video")}><Video /> Video</button>
+    </div>}
+    {!media && search && gif && <small className="media-credit">Coincidencia automática del catálogo</small>}
+  </div>;
+}
+
+function Thumb({ media, lookup, name }) {
+  const gif = media?.gif || (lookup?.status === "loaded" ? lookup.gif : null);
+  if (gif) return <span className="thumb"><img src={gif} alt="" loading="lazy" /></span>;
+  if (media?.youtube) return <span className="thumb video"><img src={`https://i.ytimg.com/vi/${media.youtube}/mqdefault.jpg`} alt="" loading="lazy" /><Play /></span>;
+  return <span className="thumb empty" aria-label={`Sin vista previa de ${name}`}>{lookup?.status === "loading" ? <LoaderCircle className="spin" /> : <Dumbbell />}</span>;
+}
+
+function RestTimer({ timer, left, sound, onSound, onShift, onToggle, onClose }) {
+  const pct = timer.total ? Math.min(100, (left / timer.total) * 100) : 0;
+  return <div className={`rest-timer ${left === 0 ? "finished" : left <= 10 ? "urgent" : ""}`} role="timer" aria-live="polite">
+    <div className="rest-bar"><i style={{ width: `${pct}%` }} /></div>
+    <div className="rest-main">
+      <div className="rest-copy"><small>{left === 0 ? "¡A por la siguiente!" : "Descanso"}</small><strong>{left === 0 ? "¡Ya!" : formatTime(left)}</strong><span>{timer.label}</span></div>
+      <button className="round" onClick={onToggle} aria-label={timer.paused ? "Reanudar" : "Pausar"}>{timer.paused ? <Play /> : <Pause />}</button>
+    </div>
+    <div className="rest-actions">
+      <button onClick={() => onShift(-15)}>−15 s</button>
+      <button onClick={() => onShift(15)}>+15 s</button>
+      <button onClick={onSound} aria-label={sound ? "Silenciar aviso" : "Activar sonido"}>{sound ? <Volume2 /> : <VolumeX />}</button>
+      <button onClick={onClose}><X /> Saltar</button>
+    </div>
+  </div>;
+}
+
+function RestDayView({ kind, plan, phase, today, progress, nextPending, onOpen, onCardio }) {
+  const cardioDone = Number(progress.cardio?.[today] || 0) > 0;
+  const minutes = phase?.cardioMinutes || 30;
+  return <div className="view-enter">
+    {kind === "cardio" ? <>
+      <div className="session-head"><div><span className="eyebrow">Cardio sostenible · movilidad</span><h1>Cardio</h1></div></div>
+      <div className="cardio-hero"><Footprints /><strong>{minutes}<small> min</small></strong><span>Caminata rápida, bici o elíptica</span></div>
+      <p className="phase-text">{phase?.cardio || plan.cardio?.liss || plan.week?.filter((item) => item.type === "cardio").map((item) => `${item.label}: ${item.activity}`).join(" · ")}</p>
+      <button className={`done-button big ${cardioDone ? "is-done" : ""}`} onClick={() => onCardio(minutes)}><Check /> {cardioDone ? "Cardio hecho · deshacer" : `Marcar ${minutes} min hechos`}</button>
+      {phase?.steps && <InfoCard icon={<Footprints />} title={`Pasos: ${perDay(phase.steps)}`} text="Más constancia que récords. Ajusta si afecta la recuperación." />}
+      {plan.cardio?.hiit && <InfoCard icon={<Flame />} title="Sin HIIT obligatorio" text={plan.cardio.hiit} />}
+    </> : <>
+      <div className="session-head"><div><span className="eyebrow">Recuperación</span><h1>Descanso</h1></div></div>
+      <InfoCard icon={<Moon />} title="Dormir antes de sumar entreno" text="Apunta a 7–9 h con horario regular. Si falta tiempo, recorta cardio opcional antes que sueño." />
+    </>}
+    {nextPending && <button className="next-pending" onClick={() => onOpen(nextPending.id)}><span><small>¿Te saltaste una sesión? Siguiente pendiente</small><b>{nextPending.title}</b></span><ChevronRight /></button>}
+  </div>;
+}
+
+function WeekView({ plan, week, phase, today, progress, settings, done, onOpen, onWeek, onCheckin, onSettings, onPlan }) {
+  const imported = plan.source === "import";
+  const dayById = Object.fromEntries((plan.blocks?.[plan.activeBlock]?.days || []).map((day) => [day.id, day]));
+  const todayIndex = (new Date().getDay() + 6) % 7;
+  const checkin = progress.checkins?.[today] || {};
+  const avgWeight = averageWeight(progress.checkins, today);
+  const guide = PLAN_GUIDE;
+  return <div className="view-enter">
+    <div className="session-head"><div><span className="eyebrow">{imported ? `Importado · ${plan.totalWeeks || 8} semanas` : "Plan de 8 semanas"}</span><h1>{imported ? plan.name : "Tu plan"}</h1></div></div>
+    <article className="phase-card">
+      <div className="week-stepper">
+        <button onClick={() => onWeek(Math.max(1, week - 1))} aria-label="Semana anterior" disabled={week <= 1}><ChevronLeft /></button>
+        <div><small>Semana</small><b>{week}<span>/{plan.totalWeeks || 8}</span></b></div>
+        <button onClick={() => onWeek(Math.min(plan.totalWeeks || 8, week + 1))} aria-label="Semana siguiente" disabled={week >= (plan.totalWeeks || 8)}><ChevronRight /></button>
+      </div>
+      <div className="phase-body"><b>{phase?.title}</b>{phase?.rir && <span className="rir-tag">{phase.rir}</span>}{phase?.detail && <p>{phase.detail}</p>}{phase?.steps && <p><Footprints /> Pasos: {perDay(phase.steps)}</p>}</div>
+    </article>
+
+    <div className="week-list">{plan.week.map((item, index) => {
+      const isDone = item.dayId ? done.has(item.dayId) : false;
+      return <button key={item.id} className={`week-row ${index === todayIndex ? "today" : ""} ${item.type || "training"} ${isDone ? "done" : ""}`} onClick={() => onOpen(item.dayId || (item.type === "cardio" ? "cardio" : "rest"))}>
+        <span className="week-day">{item.label.slice(0, 3)}{index === todayIndex && <em>hoy</em>}</span>
+        <span><b>{item.activity}</b><small>{item.dayId ? `Pesas${dayById[item.dayId]?.duration ? ` · ${dayById[item.dayId].duration}` : ""}` : item.type === "rest" ? "Recuperación" : `Cardio · ${phase?.cardioMinutes || 30} min`}</small></span>
+        {isDone ? <Check className="row-check" /> : <ChevronRight />}
+      </button>;
+    })}</div>
+
+    <h2 className="section-label">Registro de hoy</h2>
+    <div className="checkin">
+      <label><span>Peso ({settings.unit}) · en ayunas</span><input inputMode="decimal" placeholder="—" value={checkin.weight ?? ""} onChange={(event) => onCheckin({ weight: event.target.value.replace(",", ".") })} /></label>
+      <label><span>Cintura (cm) · 1×/sem</span><input inputMode="decimal" placeholder="—" value={checkin.waist ?? ""} onChange={(event) => onCheckin({ waist: event.target.value.replace(",", ".") })} /></label>
+      <label><span>Pasos de hoy</span><input inputMode="numeric" placeholder={phase?.steps || "—"} value={checkin.steps ?? ""} onChange={(event) => onCheckin({ steps: event.target.value.replace(/\D/g, "") })} /></label>
+      <label><span>Sueño (h)</span><input inputMode="decimal" placeholder="7–9" value={checkin.sleepHours ?? ""} onChange={(event) => onCheckin({ sleepHours: event.target.value.replace(",", ".") })} /></label>
+      <div className="scale"><span>Sueño y fatiga (1 mal – 5 genial)</span><div>{[1, 2, 3, 4, 5].map((value) => <button key={value} className={Number(checkin.sleep) === value ? "active" : ""} onClick={() => onCheckin({ sleep: value })}>{value}</button>)}</div></div>
+      {avgWeight && <p className="avg">Media 7 días: <b>{fmtNum(avgWeight.value)} {settings.unit}</b> ({avgWeight.count} registros)</p>}
+    </div>
+
+    {imported ? <>
+      {!!plan.notes?.length && <><h2 className="section-label">Reglas del plan</h2><div className="guide">{plan.notes.map((item, index) => <Guide key={index} title={item.title}><p>{item.text}</p></Guide>)}</div></>}
+      {plan.phases?.some((item) => item.detail || item.cardio) && <><h2 className="section-label">Fases</h2><div className="guide"><Guide title="Semana a semana">{plan.phases.map((item) => <p key={item.from}><b>Semanas {item.from === item.to ? item.from : `${item.from}–${item.to}`}{item.title ? ` · ${item.title}` : ""}:</b> {[item.rir, item.detail, item.cardio].filter(Boolean).join(" ")}</p>)}</Guide></div></>}
+    </> : <>
+    <h2 className="section-label">Reglas del plan</h2>
+    <div className="guide">{guide.rules.map((item) => <Guide key={item.title} title={item.title}><p>{item.text}</p></Guide>)}</div>
+
+    <h2 className="section-label">Cardio, sueño y seguimiento</h2>
+    <div className="guide">
+      <Guide title="Cardio por fases">{plan.phases.map((item) => <p key={item.from}><b>Semanas {item.from === item.to ? item.from : `${item.from}–${item.to}`}:</b> {item.cardio} Pasos {item.steps}.</p>)}<p>No necesitas cardio intenso ni HIIT para definir; el objetivo de 150 min/semana sigue la recomendación del CDC.</p></Guide>
+      {guide.recovery.map((item) => <Guide key={item.title} title={item.title}><p>{item.text}</p></Guide>)}
+      <Guide title="Revisión semanal: 5 datos"><table className="guide-table"><thead><tr><th>Métrica</th><th>Frecuencia</th><th>Qué buscas</th></tr></thead><tbody>{guide.tracking.map((row) => <tr key={row.metric}><td>{row.metric}</td><td>{row.when}</td><td>{row.look}</td></tr>)}</tbody></table></Guide>
+      <Guide title="Cómo saber si funciona"><p>{guide.success}</p></Guide>
+    </div>
+
+    {!plan.sample && <h2 className="section-label">Tu punto de partida</h2>}
+    <div className="guide">
+      {!plan.sample && <Guide title="Datos tenidos en cuenta"><div className="stat-row">{guide.profile.stats.map((item) => <div key={item.label}><b>{item.value}</b><span>{item.label}</span></div>)}</div><p>{guide.profile.goal}</p><p className="muted">{guide.profile.source}</p><p className="warn">{guide.profile.pending}</p></Guide>}
+      <Guide title="Evidencia consultada">{guide.evidence.map((item) => <p key={item.url}><b>{item.title}.</b> {item.text} <a href={item.url} target="_blank" rel="noopener noreferrer">Fuente</a></p>)}</Guide>
+      <p className="disclaimer">{guide.profile.medical}</p>
+    </div>
+    </>}
+
+    <h2 className="section-label">Cambiar de plan</h2>
+    <PlanImport plan={plan} onPlan={onPlan} />
+
+    <h2 className="section-label">Ajustes</h2>
+    <div className="settings-row">
+      <div className="segmented">{["lb", "kg"].map((unit) => <button key={unit} className={settings.unit === unit ? "active" : ""} onClick={() => onSettings({ unit })}>{unit}</button>)}</div>
+      <button className={`toggle ${settings.sound ? "active" : ""}`} onClick={() => onSettings({ sound: !settings.sound })}>{settings.sound ? <Volume2 /> : <VolumeX />} Sonido al terminar descanso</button>
+    </div>
+  </div>;
+}
+
+function FoodView({ nutrition, progress, setProgress, imported }) {
+  const date = localDate();
+  const log = progress.foodLogs?.[date] || [];
+  const [manual, setManual] = useState({ name: "", protein: "", calories: "" });
+  const totals = log.reduce((sum, item) => ({ protein: sum.protein + Number(item.protein || 0), calories: sum.calories + Number(item.calories || 0) }), { protein: 0, calories: 0 });
+  const guide = PLAN_GUIDE.nutrition;
+  function changeLog(next) { setProgress((current) => ({ ...current, foodLogs: { ...current.foodLogs, [date]: next } })); }
+  function add(item) { changeLog([...log, { ...item, logId: `${Date.now()}-${Math.random()}` }]); }
+  return <div className="view-enter">
+    <div className="session-head"><div><span className="eyebrow">Definición · hoy</span><h1>Comida</h1></div></div>
+    <div className="nutrition-dashboard"><Metric label="Proteína" value={totals.protein} target={nutrition.proteinTarget} unit="g" color="green" /><Metric label="Calorías" value={totals.calories} target={nutrition.calorieTarget} unit="kcal" color="orange" />{nutrition.note && <p>{nutrition.note}</p>}</div>
+    <h2 className="section-label">Añadir rápido</h2>
+    <div className="food-grid">{nutrition.foods.map((food) => <button key={food.id} onClick={() => add(food)}><Plus /><b>{food.name}</b><span>{food.protein} g · {food.calories} kcal</span></button>)}</div>
+    <div className="manual-food"><h3>Otro alimento</h3><input placeholder="Nombre" value={manual.name} onChange={(event) => setManual({ ...manual, name: event.target.value })} /><div><input inputMode="numeric" placeholder="Proteína g" value={manual.protein} onChange={(event) => setManual({ ...manual, protein: event.target.value })} /><input inputMode="numeric" placeholder="Calorías" value={manual.calories} onChange={(event) => setManual({ ...manual, calories: event.target.value })} /></div><button onClick={() => { if (manual.protein || manual.calories) { add({ name: manual.name || "Alimento", protein: manual.protein, calories: manual.calories }); setManual({ name: "", protein: "", calories: "" }); } }}><Plus /> Añadir</button></div>
+    <div className="food-log"><h2 className="section-label">Consumido hoy</h2>{!log.length && <p className="empty-state">Todavía no has registrado comida.</p>}{log.map((item) => <div key={item.logId}><span><b>{item.name}</b><small>{item.protein} g proteína · {item.calories} kcal</small></span><button onClick={() => changeLog(log.filter((row) => row.logId !== item.logId))} aria-label={`Quitar ${item.name}`}><Trash2 /></button></div>)}</div>
+    {!imported && <><h2 className="section-label">Guía del plan</h2>
+    <div className="guide">
+      <Guide title="Prioridades diarias" open><table className="guide-table"><tbody>{guide.macros.map((row) => <tr key={row.label}><td><b>{row.label}</b></td><td>{row.value}</td><td>{row.note}</td></tr>)}</tbody></table><p className="muted">{guide.example}</p></Guide>
+      <Guide title="Un día simple">{guide.meals.map((meal) => <p key={meal.label}><b>{meal.label}:</b> {meal.text}</p>)}</Guide>
+      <Guide title="Revisión cada dos semanas"><p>{guide.review}</p></Guide>
+      <Guide title="Creatina (opcional)"><p>{guide.creatine}</p></Guide>
+    </div></>}
+  </div>;
+}
+
+function ProgressView({ plan, progress, settings, week }) {
+  const [selected, setSelected] = useState(null);
+  const days = plan.blocks?.[plan.activeBlock]?.days || [];
+  const log = progress.log || {};
+  const totalWeeks = plan.totalWeeks || 8;
+  const sessions = useMemo(() => Object.keys(log).sort().reverse().flatMap((date) => days.map((day) => {
+    const sets = day.exercises.reduce((sum, exercise) => sum + (log[date]?.[exercise.id] || []).filter((row) => row?.done).length, 0);
+    return sets ? { date, day, sets, minutes: sessionMinutes(day, log[date]), note: progress.notes?.[date]?.[day.id] } : null;
+  }).filter(Boolean)), [log, days, progress.notes]);
+  const grid = Array.from({ length: totalWeeks }, (_, index) => {
+    const [from, to] = weekRange(plan, index + 1);
+    const done = completedSessions(plan, log, index + 1);
+    const cardio = Object.entries(progress.cardio || {}).filter(([date, minutes]) => date >= from && date < to && Number(minutes) > 0).length;
+    return { week: index + 1, done, cardio };
+  });
+  const cardioPerWeek = (plan.week || []).filter((item) => item.type === "cardio").length;
+  const doneTotal = grid.reduce((sum, item) => sum + item.done.size, 0);
+  const setTotal = sessions.reduce((sum, item) => sum + item.sets, 0);
+  const checkins = Object.entries(progress.checkins || {}).sort(([a], [b]) => a.localeCompare(b));
+  const weightSeries = checkins.filter(([, item]) => Number(item?.weight) > 0).map(([date, item]) => ({ label: shortDate(date), value: Number(item.weight) }));
+  const waistSeries = checkins.filter(([, item]) => Number(item?.waist) > 0).map(([date, item]) => ({ label: shortDate(date), value: Number(item.waist) }));
+
+  if (selected) {
+    const day = days.find((item) => item.exercises.some((exercise) => exercise.id === selected));
+    const exercise = day?.exercises.find((item) => item.id === selected);
+    if (exercise) return <ExerciseHistory exercise={exercise} day={day} log={log} unit={settings.unit} onBack={() => setSelected(null)} />;
+  }
+
+  return <div className="view-enter">
+    <div className="session-head"><div><span className="eyebrow">Historial · 8 semanas</span><h1>Progreso</h1></div></div>
+    <div className="stat-tiles">
+      <div><b>{doneTotal}<small>/{totalWeeks * days.length}</small></b><span>Sesiones de pesas</span></div>
+      <div><b>{setTotal}</b><span>Series registradas</span></div>
+      <div><b>{grid[week - 1]?.done.size || 0}<small>/{days.length}</small></b><span>Esta semana</span></div>
+    </div>
+
+    <h2 className="section-label">Constancia por semana</h2>
+    <div className="adherence">
+      <div className="adherence-head"><span>Sem</span>{days.map((day) => <span key={day.id}>{day.title.replace("Piernas", "Pier.")}</span>)}<span>Cardio</span></div>
+      {grid.map((row) => <div key={row.week} className={`adherence-row ${row.week === week ? "current" : ""}`}>
+        <b>{row.week}</b>
+        {days.map((day) => <i key={day.id} className={row.done.has(day.id) ? "on" : ""} aria-label={`Semana ${row.week}, ${day.title}: ${row.done.has(day.id) ? "hecha" : "pendiente"}`}>{row.done.has(day.id) && <Check />}</i>)}
+        <em>{row.cardio}/{cardioPerWeek}</em>
+      </div>)}
+    </div>
+
+    <h2 className="section-label">Peso y cintura</h2>
+    <div className="chart-card">
+      <LineChart title={`Peso (${settings.unit})`} points={weightSeries} unit={settings.unit} empty="Registra tu peso por la mañana en la pestaña Plan (3–5 días por semana)." />
+      <LineChart title="Cintura (cm)" points={waistSeries} unit="cm" empty="Mide la cintura una vez por semana, a la misma altura." />
+    </div>
+
+    <h2 className="section-label">Ejercicios</h2>
+    {days.map((day) => <div key={day.id} className="history-group">
+      <h3>{day.title}</h3>
+      {day.exercises.map((exercise) => {
+        const history = exerciseHistory(exercise, log);
+        const last = history[history.length - 1];
+        const timed = isTimed(exercise.reps);
+        return <button key={exercise.id} className="history-row" onClick={() => { setSelected(exercise.id); window.scrollTo({ top: 0 }); }}>
+          <span><b>{exercise.alternatives[0].name}</b><small>{last ? `${shortDate(last.date)} · ${last.rows.map((row) => timed ? `${row.r}s` : `${fmtNum(row.w)}×${row.r}`).join(" · ")}` : "Sin registros todavía"}</small></span>
+          {history.length > 1 ? <Sparkline values={history.map((item) => item.top)} /> : <span className="spark-empty">{history.length ? "1 sesión" : "—"}</span>}
+          <ChevronRight />
+        </button>;
+      })}
+    </div>)}
+
+    <h2 className="section-label">Sesiones</h2>
+    {!sessions.length && <p className="empty-state">Cuando marques series, cada sesión aparecerá aquí con su fecha, duración y notas.</p>}
+    <div className="session-log">{sessions.map((item) => <article key={`${item.date}-${item.day.id}`}>
+      <div><b>{item.day.title}</b><span>{longDate(item.date)}</span></div>
+      <p>{item.sets} series{item.minutes !== null ? ` · ${item.minutes} min` : ""}</p>
+      {item.note && <p className="muted">“{item.note}”</p>}
+    </article>)}</div>
+  </div>;
+}
+
+function ExerciseHistory({ exercise, day, log, unit, onBack }) {
+  const history = exerciseHistory(exercise, log);
+  const timed = isTimed(exercise.reps);
+  const best = history.reduce((top, item) => (item.best && (!top || item.best.e1rm > top.e1rm) ? { ...item.best, date: item.date } : top), null);
+  const names = Object.fromEntries(exercise.alternatives.map((item) => [item.search, item.name]));
+  return <div className="view-enter">
+    <button className="back-button" onClick={onBack}><ChevronLeft /> Progreso</button>
+    <div className="session-head"><div><span className="eyebrow">{day.title} · {exercise.sets} × {exercise.reps}</span><h1 className="small">{exercise.alternatives[0].name}</h1></div></div>
+    {!history.length && <p className="empty-state">Todavía no hay series registradas de este ejercicio.</p>}
+    {!!history.length && <>
+      <div className="stat-tiles">
+        <div><b>{history.length}</b><span>Sesiones</span></div>
+        <div><b>{timed ? `${history[history.length - 1].top}s` : fmtNum(history[history.length - 1].top)}<small>{timed ? "" : ` ${unit}`}</small></b><span>Última carga</span></div>
+        {!timed && best && <div><b>{fmtNum(best.w)}×{best.r}</b><span><Trophy /> Mejor serie</span></div>}
+      </div>
+      <div className="chart-card"><LineChart title={timed ? "Mejor tiempo (s)" : `Carga más alta por sesión (${unit})`} points={history.map((item) => ({ label: shortDate(item.date), value: item.top }))} unit={timed ? "s" : unit} empty="Hace falta más de una sesión para ver la tendencia." /></div>
+      <h2 className="section-label">Todas las sesiones</h2>
+      <div className="session-log">{[...history].reverse().map((item) => <article key={item.date}>
+        <div><b>{longDate(item.date)}</b>{item.variant && names[item.variant] && names[item.variant] !== exercise.alternatives[0].name && <span>{names[item.variant]}</span>}</div>
+        <ol className="set-list">{item.rows.map((row, index) => <li key={index}><span>S{index + 1}</span><b>{timed ? `${row.r} s` : `${fmtNum(row.w)} ${unit} × ${row.r}`}</b>{row.rir !== undefined && row.rir !== null && <em>RIR {row.rir}</em>}</li>)}</ol>
+      </article>)}</div>
+    </>}
+  </div>;
+}
+
+function LineChart({ title, points, unit, empty }) {
+  const [active, setActive] = useState(null);
+  const width = 320; const height = 120; const pad = { top: 18, right: 12, bottom: 22, left: 12 };
+  if (points.length < 2) return <div className="line-chart"><h3>{title}</h3><p className="empty-inline">{points.length === 1 ? `Un registro: ${fmtNum(points[0].value)} ${unit}. ` : ""}{empty}</p></div>;
+  const values = points.map((item) => item.value);
+  const min = Math.min(...values); const max = Math.max(...values); const span = max - min || 1;
+  const x = (index) => pad.left + (index / (points.length - 1)) * (width - pad.left - pad.right);
+  const y = (value) => pad.top + (1 - (value - min) / span) * (height - pad.top - pad.bottom);
+  const path = points.map((item, index) => `${index ? "L" : "M"}${x(index).toFixed(1)},${y(item.value).toFixed(1)}`).join(" ");
+  const shown = active ?? points.length - 1;
+  const change = values[values.length - 1] - values[0];
+  function pick(event) {
+    const box = event.currentTarget.getBoundingClientRect();
+    const ratio = (event.clientX - box.left) / box.width;
+    setActive(Math.max(0, Math.min(points.length - 1, Math.round(((ratio * width - pad.left) / (width - pad.left - pad.right)) * (points.length - 1)))));
+  }
+  return <div className="line-chart">
+    <h3>{title} <span className={change < 0 ? "down" : change > 0 ? "up" : ""}>{change > 0 ? "+" : ""}{fmtNum(change)} {unit} desde el inicio</span></h3>
+    <div className="readout"><b>{fmtNum(points[shown].value)} {unit}</b><span>{points[shown].label}</span></div>
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${title}: de ${fmtNum(values[0])} a ${fmtNum(values[values.length - 1])} ${unit}`} onPointerMove={pick} onPointerDown={pick} onPointerLeave={() => setActive(null)}>
+      <line className="grid" x1={pad.left} x2={width - pad.right} y1={y(max)} y2={y(max)} />
+      <line className="grid" x1={pad.left} x2={width - pad.right} y1={y(min)} y2={y(min)} />
+      <text className="axis" x={width - pad.right} y={y(max) - 5} textAnchor="end">{fmtNum(max)}</text>
+      <text className="axis" x={width - pad.right} y={y(min) + 14} textAnchor="end">{fmtNum(min)}</text>
+      <line className="crosshair" x1={x(shown)} x2={x(shown)} y1={pad.top - 6} y2={height - pad.bottom} />
+      <path className="series" d={path} />
+      {points.map((item, index) => <circle key={index} className={index === shown ? "dot active" : "dot"} cx={x(index)} cy={y(item.value)} r={index === shown ? 5 : 3}><title>{`${item.label}: ${fmtNum(item.value)} ${unit}`}</title></circle>)}
+      <text className="axis" x={pad.left} y={height - 4}>{points[0].label}</text>
+      <text className="axis" x={width - pad.right} y={height - 4} textAnchor="end">{points[points.length - 1].label}</text>
+    </svg>
+  </div>;
+}
+
+function Sparkline({ values }) {
+  const width = 72; const height = 28;
+  const min = Math.min(...values); const max = Math.max(...values); const span = max - min || 1;
+  const points = values.map((value, index) => `${(index / (values.length - 1)) * (width - 6) + 3},${(1 - (value - min) / span) * (height - 6) + 3}`).join(" ");
+  const last = points.split(" ").pop().split(",");
+  return <svg className="sparkline" viewBox={`0 0 ${width} ${height}`} aria-hidden="true"><polyline points={points} /><circle cx={last[0]} cy={last[1]} r="3" /></svg>;
+}
+
+function PlanImport({ plan, onPlan, compact }) {
+  const [state, setState] = useState({ step: "idle", error: "", draft: null, name: "" });
+  const inputRef = useRef(null);
+  const imported = plan.source === "import";
+
+  async function upload(file) {
+    if (!file) return;
+    if (file.type && file.type !== "application/pdf") return setState({ step: "idle", error: "Elige un archivo PDF.", draft: null, name: "" });
+    if (file.size > 6 * 1024 * 1024) return setState({ step: "idle", error: "El PDF pesa demasiado (máximo 6 MB).", draft: null, name: "" });
+    setState({ step: "loading", error: "", draft: null, name: file.name });
+    try {
+      const { plan: draft } = await api.importPlanPdf(file);
+      setState({ step: "preview", error: "", draft, name: file.name });
+    } catch (error) {
+      setState({ step: "idle", error: error.message, draft: null, name: "" });
+    } finally {
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+  async function apply(next, summary) {
+    setState((current) => ({ ...current, step: "saving", error: "" }));
+    try {
+      const monday = new Date(); monday.setDate(monday.getDate() - (monday.getDay() + 6) % 7);
+      const ready = { ...next, sample: plan.sample, version: PLAN_VERSION, startDate: localDate(monday), ...(next.source === "import" ? { importedFrom: state.name.slice(0, 80) } : {}) };
+      const { plan: saved } = await api.applyPlan(ready, summary);
+      onPlan(saved);
+      setState({ step: "done", error: "", draft: null, name: "" });
+    } catch (error) {
+      setState((current) => ({ ...current, step: current.draft ? "preview" : "idle", error: error.message }));
+    }
+  }
+
+  const draft = state.draft;
+  return <div className={`plan-import ${compact ? "compact" : ""}`}>
+    {state.step !== "preview" && <>
+      {!compact && <p className="muted">Sube el PDF de tu rutina y la IA lo convierte en un plan semanal: días, ejercicios, series, reps y descansos tal como vienen en el documento. Antes de guardarlo verás una vista previa.</p>}
+      <input ref={inputRef} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => upload(event.target.files?.[0])} />
+      <button className="import-button" disabled={state.step === "loading" || state.step === "saving"} onClick={() => inputRef.current?.click()}>
+        {state.step === "loading" ? <><LoaderCircle className="spin" /> Leyendo “{state.name}”… (hasta 1 min)</> : <><FileUp /> Subir PDF de ejercicios</>}
+      </button>
+      {state.step === "done" && <p className="import-ok"><Check /> Plan guardado. Ya lo tienes en Entreno. Si no te convence, el Coach puede deshacer el cambio.</p>}
+      {imported && !compact && <button className="swap-button" disabled={state.step === "saving"} onClick={() => { if (window.confirm("¿Volver al plan de definición de 8 semanas?")) apply(DEFAULT_PLAN, "Vuelta al plan de definición de 8 semanas"); }}><RotateCcw /> Volver al plan de definición original</button>}
+    </>}
+    {state.error && <p className="auth-error">{state.error}</p>}
+    {draft && (state.step === "preview" || state.step === "saving") && <div className="import-preview">
+      <div className="import-head"><b>{draft.name}</b><span>{draft.blocks.A.days.length} sesiones · {draft.totalWeeks} semanas</span>{draft.subtitle && <p>{draft.subtitle}</p>}</div>
+      <ol className="import-week">{draft.week.map((item) => <li key={item.id} className={item.type || "training"}><span>{item.label.slice(0, 3)}</span>{item.activity}</li>)}</ol>
+      {draft.blocks.A.days.map((day) => <details key={day.id} className="guide-item" open={day.id === "d1"}>
+        <summary><Dumbbell /> {day.title} · {day.exercises.length} ejercicios<ChevronDown className="chevron" /></summary>
+        <div><table className="guide-table"><tbody>{day.exercises.map((exercise) => <tr key={exercise.id}><td><b>{exercise.alternatives[0].name}</b>{exercise.alternatives.length > 1 && <small className="alt-list"> · alt: {exercise.alternatives.slice(1).map((item) => item.name).join(", ")}</small>}</td><td>{exercise.sets} × {exercise.reps}</td><td>{formatTime(exercise.rest)}</td></tr>)}</tbody></table></div>
+      </details>)}
+      <p className="muted">Revisa que los ejercicios y números coinciden con tu PDF. Las animaciones se buscarán automáticamente; si alguna no coincide, tendrás un enlace a YouTube.</p>
+      <div className="import-actions">
+        <button className="done-button" disabled={state.step === "saving"} onClick={() => apply(draft, `Plan importado desde PDF: ${draft.name}`)}>{state.step === "saving" ? <LoaderCircle className="spin" /> : <Check />}<span>Usar este plan</span></button>
+        <button className="swap-button" disabled={state.step === "saving"} onClick={() => setState({ step: "idle", error: "", draft: null, name: "" })}><X /> Descartar</button>
+      </div>
+    </div>}
+  </div>;
+}
+
+function Guide({ title, children, open }) { return <details className="guide-item" open={open}><summary><BookOpen /> {title}<ChevronDown className="chevron" /></summary><div>{children}</div></details>; }
+
+function CoachSheet({ user, plan, onPlan, onClose }) {
+  const [data, setData] = useState({ messages: [], memories: [], changes: [] });
+  const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-
-  async function generate() {
-    setBusy(true);
-    setError("");
+  const listRef = useRef(null);
+  useEffect(() => { api.getChat().then(setData).catch((err) => setError(err.message)); }, []);
+  useEffect(() => {
+    const feed = listRef.current;
+    if (!feed) return;
+    if (typeof feed.scrollTo === "function") feed.scrollTo({ top: feed.scrollHeight, behavior: "smooth" });
+    else feed.scrollTop = feed.scrollHeight;
+  }, [data.messages, busy]);
+  async function send(text = message) {
+    const clean = text.trim(); if (!clean || busy) return;
+    setBusy(true); setError(""); setMessage(""); setData((current) => ({ ...current, messages: [...current.messages, { role: "user", content: clean }] }));
     try {
-      const { plan } = await api.generatePlan({
-        goals,
-        daysPerWeek: Number(daysPerWeek),
-        experience,
-        equipment,
-        notes,
-      });
-      onApply(plan);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
+      await api.savePlan(plan);
+      const response = await api.sendChat(clean);
+      onPlan(response.plan);
+      setData((current) => ({ ...current, messages: [...current.messages, { role: "assistant", content: response.reply }], changes: response.changed ? [{ id: Date.now(), summary: response.summary || "Plan actualizado" }, ...current.changes] : current.changes }));
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
   }
-
-  return (
-    <div className="modal" onClick={onClose}>
-      <div className="modal-card ai-card" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <b><Sparkles size={16} /> Generar plan con IA</b>
-          <button onClick={onClose}><X size={18} /></button>
-        </div>
-
-        <label className="ai-field">
-          <span>Objetivo</span>
-          <input
-            type="text"
-            placeholder="ej. perder grasa y marcar abdomen"
-            value={goals}
-            onChange={(e) => setGoals(e.target.value)}
-          />
-        </label>
-
-        <label className="ai-field">
-          <span>Días por semana</span>
-          <select value={daysPerWeek} onChange={(e) => setDaysPerWeek(e.target.value)}>
-            {[3, 4, 5, 6, 7].map((n) => (
-              <option key={n} value={n}>{n}</option>
-            ))}
-          </select>
-        </label>
-
-        <label className="ai-field">
-          <span>Nivel</span>
-          <select value={experience} onChange={(e) => setExperience(e.target.value)}>
-            <option value="beginner">Principiante</option>
-            <option value="intermediate">Intermedio</option>
-            <option value="advanced">Avanzado</option>
-          </select>
-        </label>
-
-        <label className="ai-field">
-          <span>Equipo</span>
-          <input
-            type="text"
-            placeholder="ej. full gym, mancuernas, casa"
-            value={equipment}
-            onChange={(e) => setEquipment(e.target.value)}
-          />
-        </label>
-
-        <label className="ai-field">
-          <span>Notas</span>
-          <input
-            type="text"
-            placeholder="lesiones, preferencias…"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
-        </label>
-
-        {error && <div className="auth-error">{error}</div>}
-
-        <div className="actions modal-actions">
-          <button className="primary" onClick={generate} disabled={busy}>
-            <Sparkles size={16} /> {busy ? "Generando…" : "Generar"}
-          </button>
-          {hasCustomPlan && (
-            <button onClick={onReset} disabled={busy}>
-              <RefreshCw size={16} /> Volver al plan original
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+  async function undo() {
+    try { const response = await api.undoPlanChange(); onPlan(response.plan); setData((current) => ({ ...current, changes: current.changes.slice(1), messages: [...current.messages, { role: "assistant", content: `Deshice: ${response.undone}` }] })); } catch (err) { setError(err.message); }
+  }
+  return <div className="sheet-backdrop" onClick={onClose}><section className="coach-sheet" onClick={(event) => event.stopPropagation()}><header><div className="coach-avatar"><Bot /></div><div><b>Plan Coach</b><span>{user.emailVerified ? "Con memoria privada" : "Verifica tu email para conversar"}</span></div><button onClick={onClose} aria-label="Cerrar"><X /></button></header><div className="chat-feed" ref={listRef}>{!data.messages.length && <div className="coach-welcome"><Sparkles /><h3>Habla con tu plan.</h3><p>Pídeme mover un día, cambiar un ejercicio o adaptar el volumen. Cada cambio queda registrado y se puede deshacer.</p></div>}{data.messages.map((item, index) => <div key={`${item.id || index}-${item.role}`} className={`bubble ${item.role}`}>{item.content}</div>)}{busy && <div className="bubble assistant thinking"><i /><i /><i /></div>}{error && <div className="chat-error">{error}</div>}</div>{!data.messages.length && <div className="quick-prompts"><button onClick={() => send("Hoy no puedo entrenar, ¿qué hago con la sesión que me toca?")}>Me salté un día</button><button onClick={() => send("La máquina Smith está ocupada, ¿qué alternativa uso hoy?")}>Smith ocupada</button><button onClick={() => send("Recuerda que prefiero entrenar por la mañana")}>Guardar preferencia</button></div>}{!!data.changes.length && <div className="undo-bar"><span><History /> {data.changes[0].summary}</span><button onClick={undo}><RotateCcw /> Deshacer</button></div>}<form className="composer" onSubmit={(event) => { event.preventDefault(); send(); }}><textarea maxLength={1600} rows="1" placeholder="Ej. Mueve Piernas B al sábado…" value={message} onChange={(event) => setMessage(event.target.value)} disabled={busy || !user.emailVerified} /><button type="submit" disabled={busy || !message.trim() || !user.emailVerified} aria-label="Enviar"><Send /></button></form></section></div>;
 }
 
-// Auth gate: shows the login/register screen until a session exists.
+function InfoCard({ icon, title, text }) { return <article className="info-card">{icon}<div><h3>{title}</h3><p>{text}</p></div></article>; }
+function Metric({ label, value, target, unit, color }) { return <div className="metric"><div><span>{label}</span><strong>{value}<small> / {target} {unit}</small></strong></div><div className="metric-track"><i className={color} style={{ width: `${Math.min(100, value / target * 100)}%` }} /></div></div>; }
+function NavButton({ active, icon, label, onClick, accent }) { return <button className={`${active ? "active" : ""} ${accent ? "accent" : ""}`} onClick={onClick}>{React.cloneElement(icon, { size: 24 })}<span>{label}</span></button>; }
+function currentAlternative(exercise, alternatives = {}) { const index = alternatives?.[exercise.id] || 0; return exercise.alternatives[index % exercise.alternatives.length]; }
+
+function programWeek(plan, today) {
+  const start = new Date(`${plan.startDate || today}T12:00:00`);
+  const now = new Date(`${today}T12:00:00`);
+  const week = Math.floor((now - start) / (7 * 86_400_000)) + 1;
+  return Math.min(plan.totalWeeks || 8, Math.max(1, week));
+}
+function weekRange(plan, week) {
+  const start = new Date(`${plan.startDate}T12:00:00`);
+  start.setDate(start.getDate() + (week - 1) * 7);
+  const end = new Date(start); end.setDate(end.getDate() + 7);
+  return [localDate(start), localDate(end)];
+}
+function completedSessions(plan, log = {}, week) {
+  const [from, to] = weekRange(plan, week);
+  const done = new Set();
+  for (const day of plan.blocks?.[plan.activeBlock]?.days || []) {
+    const ids = day.exercises.map((exercise) => exercise.id);
+    const hit = Object.entries(log).some(([date, entries]) => date >= from && date < to && ids.some((id) => (entries?.[id] || []).some((row) => row?.done)));
+    if (hit) done.add(day.id);
+  }
+  return done;
+}
+function targetSets(exercise, phase, fatigue) {
+  const sets = Number(exercise.sets) || 1;
+  if (phase?.deload) return Math.max(1, Math.round(sets * 0.6));
+  if (fatigue === "yellow" && !exercise.main) return Math.max(1, sets - 1);
+  return sets;
+}
+function lastSession(log = {}, exerciseId, before) {
+  const date = Object.keys(log).filter((key) => key < before && (log[key]?.[exerciseId] || []).some((row) => row?.done)).sort().pop();
+  return date ? { date, rows: log[date][exerciseId] } : null;
+}
+function repRange(reps) { const numbers = String(reps).match(/\d+/g)?.map(Number) || [10]; return { low: numbers[0], high: numbers[1] || numbers[0] }; }
+function isTimed(reps) { return /\d\s*s\b/.test(String(reps)); }
+function progressionHint(exercise, previous, unit) {
+  if (!previous || isTimed(exercise.reps)) return null;
+  const done = previous.rows.filter((row) => row?.done);
+  const { high } = repRange(exercise.reps);
+  if (done.length < Number(exercise.sets) || !done.every((row) => Number(row.r) >= high && Number(row.w) > 0)) return null;
+  const top = Math.max(...done.map((row) => Number(row.w)));
+  // PDF: el menor incremento disponible, ≈2–5 % en torso y 2–10 % en piernas.
+  const step = unit === "kg" ? 2.5 : 5;
+  const legs = /^d[24]-/.test(exercise.id);
+  const increment = Math.max(step, Math.round((top * (legs ? 0.05 : 0.025)) / step) * step);
+  return { weight: top + increment };
+}
+function suggestSet(exercise, rows, setIndex, previous, hint) {
+  const { low } = repRange(exercise.reps);
+  const before = rows.slice(0, setIndex).reverse().find((row) => row?.done);
+  if (before) return { w: before.w, r: before.r };
+  if (hint) return { w: hint.weight, r: low };
+  const last = previous?.rows?.[setIndex] || previous?.rows?.filter((row) => row?.done).pop();
+  return { w: last?.w ?? 0, r: last?.r ?? low };
+}
+function averageWeight(checkins = {}, today) {
+  const from = new Date(`${today}T12:00:00`); from.setDate(from.getDate() - 6);
+  const values = Object.entries(checkins).filter(([date, item]) => date >= localDate(from) && date <= today && Number(item?.weight) > 0).map(([, item]) => Number(item.weight));
+  return values.length ? { value: values.reduce((a, b) => a + b, 0) / values.length, count: values.length } : null;
+}
+function sessionMinutes(day, entries = {}) {
+  const times = day.exercises.flatMap((exercise) => (entries?.[exercise.id] || []).filter((row) => row?.done && row.t).map((row) => row.t));
+  return times.length > 1 ? Math.max(1, Math.round((Math.max(...times) - Math.min(...times)) / 60_000)) : null;
+}
+function exerciseHistory(exercise, log = {}) {
+  const timed = isTimed(exercise.reps);
+  return Object.keys(log).sort().map((date) => {
+    const rows = (log[date]?.[exercise.id] || []).filter((row) => row?.done);
+    if (!rows.length) return null;
+    const best = timed ? null : rows.map((row) => ({ w: Number(row.w) || 0, r: Number(row.r) || 0, e1rm: (Number(row.w) || 0) * (1 + (Number(row.r) || 0) / 30) })).sort((a, b) => b.e1rm - a.e1rm)[0];
+    const top = Math.max(...rows.map((row) => Number(timed ? row.r : row.w) || 0));
+    return { date, rows, top, best, variant: rows.find((row) => row.a)?.a };
+  }).filter(Boolean);
+}
+function shortDate(date) { const [, month, dayOfMonth] = date.split("-"); return `${Number(dayOfMonth)}/${Number(month)}`; }
+function longDate(date) { return new Date(`${date}T12:00:00`).toLocaleDateString("es", { weekday: "short", day: "numeric", month: "short" }); }
+function normalizeProgress(value) { return { ...EMPTY_PROGRESS, ...value, settings: { ...EMPTY_PROGRESS.settings, ...value?.settings } }; }
+function readProgressCache(userId) { try { const cached = JSON.parse(localStorage.getItem(PROGRESS_CACHE_KEY)); return cached?.userId === userId ? cached : null; } catch { return null; } }
+function writeProgressCache(userId, progress, dirty) { try { localStorage.setItem(PROGRESS_CACHE_KEY, JSON.stringify({ userId, progress, dirty, at: Date.now() })); } catch {} }
+function perDay(steps) { return /d[ií]a/i.test(steps) ? steps : `${steps}/día`; }
+function fmtNum(value) { const number = Number(value) || 0; return Number.isInteger(number) ? String(number) : number.toFixed(1); }
+function unlockAudio(ref) {
+  try { ref.current ||= new (window.AudioContext || window.webkitAudioContext)(); ref.current.resume?.(); } catch {}
+}
+function beep(ref) {
+  const context = ref.current; if (!context) return;
+  [0, 0.35, 0.7].forEach((offset) => {
+    const osc = context.createOscillator(); const gain = context.createGain();
+    osc.frequency.value = 880; gain.gain.setValueAtTime(0.25, context.currentTime + offset); gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + offset + 0.25);
+    osc.connect(gain).connect(context.destination); osc.start(context.currentTime + offset); osc.stop(context.currentTime + offset + 0.26);
+  });
+}
+
+async function ensureGif(search, cache, setCache, force) {
+  const current = cache?.[search];
+  if (!force && current?.gif && current.status === "loaded") return;
+  if (!force && current?.status === "loading" && Date.now() - Number(current.at || 0) < 30_000) return;
+  if (!force && current?.status === "failed" && Date.now() - Number(current.at || 0) < 5 * 60_000) return;
+  setCache((previous) => ({ ...previous, [search]: { ...(previous[search] || {}), status: "loading", at: Date.now() } }));
+  try {
+    const { exercise } = await api.getExerciseGif(search);
+    if (!exercise?.gif) throw new Error("No GIF");
+    await preloadImage(exercise.gif);
+    setCache((previous) => ({ ...previous, [search]: { ...exercise, status: "loaded", at: Date.now() } }));
+  } catch { setCache((previous) => ({ ...previous, [search]: { status: "failed", at: Date.now() } })); }
+}
+function preloadImage(src) { return new Promise((resolve, reject) => { const image = new Image(); const timer = setTimeout(() => reject(new Error("GIF timeout")), 12_000); image.onload = () => { clearTimeout(timer); resolve(); }; image.onerror = () => { clearTimeout(timer); reject(new Error("GIF failed")); }; image.src = src; }); }
+function useLocalStorage(key, fallback) { const [value, setValue] = useState(() => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } }); useEffect(() => { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} }, [key, value]); return [value, setValue]; }
+function localDate(date = new Date()) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
+function formatTime(seconds) { const value = Math.max(0, Math.round(Number(seconds) || 0)); return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, "0")}`; }
+
 function Root() {
   const { user, loading } = useAuth();
-  
-  // Simple routing for email verification
-  const path = window.location.pathname;
-  const isVerifyPage = path === "/verify-email" || window.location.search.includes("token=");
-  
-  if (isVerifyPage) {
-    return <VerifyEmailPage />;
-  }
-  
-  if (loading) return <div className="boot">Cargando…</div>;
+  const verifyPath = `${import.meta.env.BASE_URL}verify-email`.replace(/\/$/, "");
+  if (window.location.pathname === verifyPath || window.location.search.includes("token=")) return <VerifyEmailPage />;
+  if (loading) return <div className="boot"><LoaderCircle className="spin" /> Preparando tu espacio…</div>;
   if (!user) return <AuthScreen />;
-  
-  return (
-    <>
-      <EmailVerificationBanner user={user} />
-      <App />
-    </>
-  );
+  return <><EmailVerificationBanner user={user} /><App /></>;
 }
 
-function GifBox({ name, gif, status, onOpen }) {
-  return (
-    <div
-      className="gif-box"
-      onClick={(e) => {
-        e.stopPropagation();
-        if (gif) onOpen();
-      }}
-    >
-      {gif ? (
-        <img src={gif} alt={`${name} GIF`} />
-      ) : (
-        <div className="placeholder">
-          <Dumbbell size={26} />
-          <span>{status === "loading" ? "Loading GIF" : "No GIF"}</span>
-        </div>
-      )}
-      {gif && <div className="tap">Tap</div>}
-    </div>
-  );
-}
-
-function SetTracker({ exId, sets, rest, progress, setSetValue, toggleDone }) {
-  const count = Math.max(1, Number(String(sets).match(/\d+/)?.[0] || 1));
-  return (
-    <div className="sets">
-      {Array.from({ length: count }).map((_, i) => {
-        const setNo = String(i + 1);
-        const row = progress?.[exId]?.[setNo] || {};
-        return (
-          <div className="set-row" key={setNo}>
-            <b>{setNo}</b>
-            <input
-              inputMode="decimal"
-              placeholder="lb"
-              value={row.weight || ""}
-              onChange={(e) => setSetValue(exId, setNo, "weight", e.target.value)}
-            />
-            <input
-              inputMode="decimal"
-              placeholder="reps"
-              value={row.reps || ""}
-              onChange={(e) => setSetValue(exId, setNo, "reps", e.target.value)}
-            />
-            <button
-              className={row.done ? "done" : ""}
-              onClick={() => toggleDone(exId, setNo, rest)}
-            >
-              {row.done ? <CheckCircle2 size={17} /> : "○"}
-            </button>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function Stat({ value, label }) {
-  return (
-    <div className="stat">
-      <b>{value}</b>
-      <span>{label}</span>
-    </div>
-  );
-}
-
-function Info({ title, children }) {
-  return (
-    <div className="info-card">
-      <h3>{title}</h3>
-      {children}
-    </div>
-  );
-}
-
-async function loadGif(search, cache, setCache, force = false) {
-  if (!force && cache?.[search]?.gif) return cache[search].gif;
-
-  if (!ENABLE_EXERCISEDB_LOOKUP || NO_GIF_SEARCHES.has(search)) {
-    setCache((prev) => ({
-      ...prev,
-      [search]: {
-        ...(prev[search] || {}),
-        status: "failed",
-        ts: Date.now(),
-      },
-    }));
-    return "";
-  }
-
-  // Curated overrides win over the ExerciseDB search — these are searches whose
-  // best API match is a known-wrong exercise, so never let the lookup override them.
-  if (FALLBACK_GIFS[search]) {
-    setCache((prev) => ({
-      ...prev,
-      [search]: { gif: FALLBACK_GIFS[search], id: "", name: search, status: "loaded", ts: Date.now() },
-    }));
-    return FALLBACK_GIFS[search];
-  }
-
-  setCache((prev) => ({
-    ...prev,
-    [search]: { ...(prev[search] || {}), status: "loading" },
-  }));
-
-  const queries = uniq([
-    search,
-    search.replace("dumbbell ", ""),
-    search.replace("stationary ", ""),
-    search.replace("incline treadmill walk", "walking"),
-    search.replace("romanian deadlift dumbbell", "dumbbell romanian deadlift"),
-    search.replace("stomach vacuum", "vacuum"),
-  ]);
-
-  for (const q of queries) {
-    try {
-      const data = await fetchJson(`${API_BASE}/search?search=${encodeURIComponent(q)}`, 9000);
-      const list = normalizeExerciseList(data);
-      const match = pickBestMatch(q, list);
-      if (!match) continue;
-
-      const id = match.exerciseId || match.id || match._id || match.exercise_id;
-      const gif = match.gifUrl || match.gif || match.image || match.imageUrl || match.mediaUrl || (id ? `${STATIC_BASE}${id}.gif` : "");
-      if (!gif) continue;
-
-      setCache((prev) => ({
-        ...prev,
-        [search]: {
-          gif,
-          id: id || "",
-          name: match.name || q,
-          status: "loaded",
-          ts: Date.now(),
-        },
-      }));
-      return gif;
-    } catch {
-      // try next query
-    }
-  }
-
-  setCache((prev) => ({
-    ...prev,
-    [search]: {
-      ...(prev[search] || {}),
-      status: "failed",
-      ts: Date.now(),
-    },
-  }));
-  return "";
-}
-
-async function fetchJson(url, ms) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), ms);
-  try {
-    const res = await fetch(url, {
-      headers: { accept: "application/json" },
-      signal: controller.signal,
-      cache: "no-store",
-    });
-    if (!res.ok) throw new Error(`API ${res.status}`);
-    if (!res.headers.get("content-type")?.includes("application/json")) {
-      throw new Error("API returned non-json");
-    }
-    return await res.json();
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-function normalizeExerciseList(data) {
-  if (Array.isArray(data)) return data;
-  if (Array.isArray(data?.data)) return data.data;
-  if (Array.isArray(data?.data?.exercises)) return data.data.exercises;
-  if (Array.isArray(data?.exercises)) return data.exercises;
-  if (Array.isArray(data?.results)) return data.results;
-  return [];
-}
-
-function pickBestMatch(search, list) {
-  if (!list?.length) return null;
-  const s = norm(search);
-  const words = s.split(" ").filter((w) => w.length > 2);
-
-  const best = list
-    .map((item) => {
-      const n = norm(item.name || item.exerciseName || "");
-      const substr = n === s || n.includes(s) || s.includes(n);
-      let score = 0;
-      let hits = 0;
-      if (n === s) score += 100;
-      if (substr) score += 50;
-      words.forEach((w) => {
-        if (n.includes(w)) {
-          score += 8;
-          hits += 1;
-        }
-      });
-      return { item, score, hits, substr };
-    })
-    .sort((a, b) => b.score - a.score)[0];
-
-  if (!best) return null;
-  // Confidence gate: only trust exact/substring matches, or matches that share a
-  // clear majority of the search's significant words. Otherwise return null so
-  // the caller falls back to "No GIF" + YouTube instead of showing a wrong GIF.
-  if (best.substr) return best.item;
-  if (words.length && best.hits >= Math.max(2, Math.ceil(words.length * 0.6))) {
-    return best.item;
-  }
-  return null;
-}
-
-function useLocalStorage(key, fallback) {
-  const [value, setValue] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem(key)) ?? fallback;
-    } catch {
-      return fallback;
-    }
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch {}
-  }, [key, value]);
-
-  return [value, setValue];
-}
-
-function openShorts(name) {
-  const q = `${name} exercise form shorts #shorts`;
-  window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`, "_blank", "noopener,noreferrer");
-}
-
-function parseRest(rest) {
-  const match = String(rest).match(/\d+/);
-  return match ? Number(match[0]) : 0;
-}
-
-function formatTime(seconds) {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
-
-function slug(v) {
-  return norm(v).replace(/\s+/g, "-");
-}
-
-function getTodayKey() {
-  return ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][new Date().getDay()];
-}
-
-function norm(v) {
-  return String(v).toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function uniq(arr) {
-  return [...new Set(arr.filter(Boolean))];
-}
-
-createRoot(document.getElementById("root")).render(
-  <AuthProvider>
-    <Root />
-  </AuthProvider>
-);
+createRoot(document.getElementById("root")).render(<AuthProvider><Root /></AuthProvider>);

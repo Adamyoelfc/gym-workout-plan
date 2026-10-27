@@ -4,3 +4,6 @@ dist/
 .DS_Store
 *.log
 .playwright-mcp/
+
+# Cuenta de prueba local (no subir)
+.claude/dev-test-account.json

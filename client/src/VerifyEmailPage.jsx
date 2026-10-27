@@ -3,6 +3,7 @@ import { CheckCircle, XCircle, Loader } from "lucide-react";
 import { api } from "./api.js";
 
 export function VerifyEmailPage() {
+  const baseUrl = import.meta.env.BASE_URL;
   const [status, setStatus] = useState("loading"); // loading | success | error
   const [message, setMessage] = useState("");
 
@@ -16,6 +17,9 @@ export function VerifyEmailPage() {
       return;
     }
 
+    // Keep the one-time token out of browser history and later referrers.
+    window.history.replaceState({}, "", `${baseUrl}verify-email`);
+
     api
       .verifyEmail(token)
       .then((res) => {
@@ -23,7 +27,7 @@ export function VerifyEmailPage() {
         setMessage(res.message || "¡Email verificado!");
         // Redirect after 3 seconds
         setTimeout(() => {
-          window.location.href = "/";
+          window.location.href = baseUrl;
         }, 3000);
       })
       .catch((err) => {
@@ -54,7 +58,7 @@ export function VerifyEmailPage() {
             <XCircle size={48} color="#F44336" />
             <h2>Error de verificación</h2>
             <p>{message}</p>
-            <a href="/" className="btn-home">
+            <a href={baseUrl} className="btn-home">
               Volver al inicio
             </a>
           </>
