@@ -54,10 +54,44 @@ router.post("/auth/register", registrationLimiter, async (req, res) => {
   const { email, password, name } = req.body || {};
   if (!isEmail(email)) return res.status(400).json({ error: "Escribe un email válido" });
   if (!canRegister(email)) return res.status(403).json({ error: "El registro está cerrado. Esta app es privada." });
-  if (typeof password !== "string" || password.length < 10 || password.length > 128)
-    return res.status(400).json({ error: "La contraseña debe tener entre 10 y 128 caracteres" });
   if (name && (typeof name !== "string" || name.length > 80))
     return res.status(400).json({ error: "El nombre es demasiado largo" });
+
+  // Por invitación: aquí no se elige contraseña. Solo quien abre el enlace del correo
+  // la crea, así que registrar antes el email de otro no sirve para quedarse su cuenta.
+  // Un registro repetido de una cuenta sin verificar renueva el enlace (no bloquea al invitado).
+  if (!openRegistration) {
+    try {
+      const verificationToken = generateVerificationToken();
+      const { rows } = await query(
+        `INSERT INTO users (email, password_hash, name, verification_token, verification_expires)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (email) DO UPDATE
+           SET verification_token = EXCLUDED.verification_token,
+               verification_expires = EXCLUDED.verification_expires,
+               password_hash = EXCLUDED.password_hash
+           WHERE users.email_verified = false
+         RETURNING id`,
+        [email.toLowerCase(), await hashPassword(generateVerificationToken()), name || null, verificationToken, getVerificationExpiry()],
+      );
+      if (rows[0]) {
+        void sendVerificationEmail(email, verificationToken).catch((emailError) => {
+          console.error("[routes] verification email error", emailError);
+        });
+      }
+      // Misma respuesta exista o no la cuenta, para no revelar quién está registrado.
+      return res.status(202).json({
+        user: null,
+        message: "Si ese email está invitado, te llegará un enlace para activar la cuenta y crear tu contraseña.",
+      });
+    } catch (err) {
+      console.error("[routes] invite register error", err);
+      return res.status(500).json({ error: "No se pudo crear la cuenta" });
+    }
+  }
+
+  if (typeof password !== "string" || password.length < 10 || password.length > 128)
+    return res.status(400).json({ error: "La contraseña debe tener entre 10 y 128 caracteres" });
 
   try {
     const hash = await hashPassword(password);
@@ -73,14 +107,10 @@ router.post("/auth/register", registrationLimiter, async (req, res) => {
     
     const user = rows[0];
     
-    // Con la lista de invitados, poner un email de la lista no demuestra que sea tuyo:
-    // la sesión solo se abre tras verificar el correo.
-    if (openRegistration) setSessionCookie(req, res, user);
+    setSessionCookie(req, res, user);
     res.status(201).json({
-      user: openRegistration ? publicUser(user) : null,
-      message: openRegistration
-        ? "Account created! Please check your email to verify."
-        : "Cuenta creada. Abre el enlace que te enviamos por email para activarla y luego entra.",
+      user: publicUser(user),
+      message: "Account created! Please check your email to verify."
     });
 
     // Do not keep the registration request waiting on an external SMTP server.
@@ -98,9 +128,18 @@ router.post("/auth/register", registrationLimiter, async (req, res) => {
 // Verify email with token
 router.get("/auth/verify-email", async (req, res) => {
   const { token } = req.query;
-  if (!token) return res.status(400).json({ error: "Verification token required" });
+  if (!token || typeof token !== "string") return res.status(400).json({ error: "Verification token required" });
 
   try {
+    if (!openRegistration) {
+      const { rows } = await query(
+        "SELECT 1 FROM users WHERE verification_token = $1 AND verification_expires > NOW() AND email_verified = false",
+        [token],
+      );
+      if (!rows.length) return res.status(400).json({ error: "El enlace no es válido o ha caducado. Regístrate de nuevo para recibir otro." });
+      return res.json({ needsPassword: true });
+    }
+
     const { rows } = await query(
       `UPDATE users 
        SET email_verified = true, 
@@ -125,6 +164,29 @@ router.get("/auth/verify-email", async (req, res) => {
   } catch (err) {
     console.error("[routes] verify email error", err);
     res.status(500).json({ error: "Verification failed" });
+  }
+});
+
+// Activar una cuenta invitada: el enlace del correo + la contraseña elegida en ese momento.
+router.post("/auth/verify-email", loginLimiter, async (req, res) => {
+  const { token, password } = req.body || {};
+  if (!token || typeof token !== "string") return res.status(400).json({ error: "Falta el enlace de verificación" });
+  if (typeof password !== "string" || password.length < 10 || password.length > 128)
+    return res.status(400).json({ error: "La contraseña debe tener entre 10 y 128 caracteres" });
+  try {
+    const { rows } = await query(
+      `UPDATE users
+       SET email_verified = true, password_hash = $2, verification_token = NULL, verification_expires = NULL
+       WHERE verification_token = $1 AND verification_expires > NOW() AND email_verified = false
+       RETURNING id, email, name, email_verified, ai_credits`,
+      [token, await hashPassword(password)],
+    );
+    if (!rows.length) return res.status(400).json({ error: "El enlace no es válido o ha caducado. Regístrate de nuevo para recibir otro." });
+    setSessionCookie(req, res, rows[0]);
+    res.json({ success: true, message: "Cuenta activada. ¡Bienvenido!", user: publicUser(rows[0]) });
+  } catch (err) {
+    console.error("[routes] invite activation error", err);
+    res.status(500).json({ error: "No se pudo activar la cuenta" });
   }
 });
 

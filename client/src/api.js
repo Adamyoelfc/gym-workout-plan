@@ -22,7 +22,8 @@ export const api = {
   logout: () => request("/auth/logout", { method: "POST", auth: false }),
   me: () => request("/auth/me"),
   authConfig: () => request("/auth/config", { auth: false }),
-  verifyEmail: (token) => request(`/auth/verify-email?token=${token}`, { auth: false }),
+  verifyEmail: (token) => request(`/auth/verify-email?token=${encodeURIComponent(token)}`, { auth: false }),
+  activateAccount: (token, password) => request("/auth/verify-email", { method: "POST", body: { token, password }, auth: false }),
   resendVerification: () => request("/auth/resend-verification", { method: "POST" }),
   getAiStats: () => request("/auth/ai-stats"),
 

@@ -106,14 +106,15 @@ export function AuthScreen() {
           autoComplete="email"
           required
         />
-        <input
+        {(mode === "login" || registration === "open") && <input
           type="password"
           placeholder={mode === "login" ? "Contraseña" : "Contraseña (mín. 10)"}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           autoComplete={mode === "login" ? "current-password" : "new-password"}
           required
-        />
+        />}
+        {mode === "register" && registration === "invite" && <p className="auth-closed">Te enviaremos un enlace al email; al abrirlo crearás tu contraseña.</p>}
 
         {error && <div className="auth-error">{error}</div>}
 
